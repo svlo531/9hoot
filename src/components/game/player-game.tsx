@@ -36,6 +36,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [streak, setStreak] = useState(0)
   const [currentRank, setCurrentRank] = useState<number | null>(null)
   const [playerCount, setPlayerCount] = useState(0)
+  const [podiumData, setPodiumData] = useState<{ nickname: string; score: number; rank: number }[]>([])
   const [error, setError] = useState<string | null>(null)
   const [playerTimeLeft, setPlayerTimeLeft] = useState(0)
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -62,6 +63,7 @@ export function PlayerGame({ pin }: { pin: string }) {
       if (!session) return
 
       if (session.status === 'completed') {
+        // Fetch my own result
         const { data: myParticipant } = await supabase
           .from('participants')
           .select('total_score, rank')
@@ -72,6 +74,24 @@ export function PlayerGame({ pin }: { pin: string }) {
           setTotalScore(myParticipant.total_score || totalScore)
           setCurrentRank(myParticipant.rank)
         }
+
+        // Fetch top 3 for podium display
+        const { data: topPlayers } = await supabase
+          .from('participants')
+          .select('nickname, total_score, rank')
+          .eq('session_id', sessionId)
+          .order('total_score', { ascending: false })
+          .limit(3)
+
+        if (topPlayers) {
+          setPodiumData(topPlayers.map((p, i) => ({
+            nickname: p.nickname,
+            score: p.total_score || 0,
+            rank: p.rank || i + 1,
+          })))
+          setPlayerCount(topPlayers.length)
+        }
+
         setPhase('podium')
         return
       }
@@ -769,10 +789,26 @@ export function PlayerGame({ pin }: { pin: string }) {
     </div>
   )
 
-  if (phase === 'podium') return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
-      {/* Mini confetti */}
-      {currentRank && currentRank <= 3 && (
+  if (phase === 'podium') {
+    const podiumConfig = [
+      { color: '#FFD700', height: 120, label: '1st' },
+      { color: '#C0C0C0', height: 90, label: '2nd' },
+      { color: '#CD7F32', height: 70, label: '3rd' },
+    ]
+    // Visual order: 2nd, 1st, 3rd
+    const displayOrder = podiumData.length >= 3
+      ? [
+          { entry: podiumData[1], config: podiumConfig[1] },
+          { entry: podiumData[0], config: podiumConfig[0] },
+          { entry: podiumData[2], config: podiumConfig[2] },
+        ]
+      : podiumData.map((entry, i) => ({ entry, config: podiumConfig[i] }))
+
+    const isOnPodium = currentRank !== null && currentRank <= 3
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        {/* Confetti for everyone */}
         <div className="absolute inset-0 pointer-events-none">
           {Array.from({ length: 30 }).map((_, i) => (
             <div
@@ -787,52 +823,100 @@ export function PlayerGame({ pin }: { pin: string }) {
             />
           ))}
         </div>
-      )}
 
-      <div className="text-center z-10 animate-podium-enter">
-        <h2 className="text-3xl font-bold text-white mb-4">Game Over!</h2>
-        {currentRank && currentRank <= 3 && (
-          <div className="text-7xl mb-4 animate-podium-trophy">{currentRank === 1 ? '🏆' : currentRank === 2 ? '🥈' : '🥉'}</div>
-        )}
-        <p className="text-white font-bold text-xl">{nickname}</p>
-        {currentRank && (
-          <p className="text-yellow-accent font-bold text-lg mt-2">
-            Finished {currentRank === 1 ? '1st' : currentRank === 2 ? '2nd' : currentRank === 3 ? '3rd' : `${currentRank}th`}
-            {playerCount > 0 ? ` out of ${playerCount}` : ''}
-          </p>
-        )}
-        <div className="bg-white/10 rounded-xl px-8 py-4 mt-4">
-          <p className="text-white/80 text-sm">Final Score</p>
-          <p className="text-white font-bold text-3xl tabular-nums">{totalScore.toLocaleString()}</p>
+        <div className="z-10 w-full px-6">
+          {/* Title */}
+          <h2 className="text-2xl font-bold text-white text-center mb-6 animate-podium-enter">
+            Game Over!
+          </h2>
+
+          {/* Top 3 podium */}
+          {podiumData.length > 0 && (
+            <div className="flex items-end justify-center gap-3 mb-8">
+              {displayOrder.map(({ entry, config }, i) => {
+                const isMe = entry.nickname === nickname
+                return (
+                  <div
+                    key={i}
+                    className="flex flex-col items-center animate-podium-pillar"
+                    style={{ animationDelay: `${[0.5, 0.3, 0.7][i]}s` }}
+                  >
+                    <span className={`text-sm font-bold mb-1 truncate max-w-[90px] ${isMe ? 'text-yellow-accent' : 'text-white'}`}>
+                      {entry.nickname}
+                    </span>
+                    <span className="text-white/60 text-xs mb-2 tabular-nums">
+                      {entry.score.toLocaleString()}
+                    </span>
+                    <div
+                      className="w-20 rounded-t-lg flex items-start justify-center pt-3 shadow-lg"
+                      style={{ backgroundColor: config.color, height: `${config.height}px` }}
+                    >
+                      <span className="text-lg font-bold text-white/90">{config.label}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Your result */}
+          <div className={`rounded-xl px-6 py-4 text-center mx-auto max-w-xs animate-podium-result ${isOnPodium ? 'bg-yellow-accent/15 border border-yellow-accent/30' : 'bg-white/10'}`}>
+            {isOnPodium && (
+              <div className="text-4xl mb-2 animate-podium-trophy">
+                {currentRank === 1 ? '🏆' : currentRank === 2 ? '🥈' : '🥉'}
+              </div>
+            )}
+            <p className="text-white font-bold text-lg">{nickname}</p>
+            {currentRank && (
+              <p className={`font-bold text-sm mt-1 ${isOnPodium ? 'text-yellow-accent' : 'text-white/60'}`}>
+                {currentRank === 1 ? '1st' : currentRank === 2 ? '2nd' : currentRank === 3 ? '3rd' : `${currentRank}th`} place
+              </p>
+            )}
+            <p className="text-white font-bold text-2xl mt-2 tabular-nums">{totalScore.toLocaleString()} <span className="text-white/50 text-sm font-normal">pts</span></p>
+          </div>
         </div>
-      </div>
 
-      <style jsx>{`
-        @keyframes podium-confetti {
-          0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-        }
-        .animate-podium-confetti {
-          animation: podium-confetti 3s ease-in-out infinite;
-        }
-        @keyframes podium-enter {
-          0% { opacity: 0; transform: scale(0.8); }
-          100% { opacity: 1; transform: scale(1); }
-        }
-        .animate-podium-enter {
-          animation: podium-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-        }
-        @keyframes podium-trophy {
-          0% { transform: scale(0) rotate(-30deg); }
-          60% { transform: scale(1.3) rotate(10deg); }
-          100% { transform: scale(1) rotate(0); }
-        }
-        .animate-podium-trophy {
-          animation: podium-trophy 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both;
-        }
-      `}</style>
-    </div>
-  )
+        <style jsx>{`
+          @keyframes podium-confetti {
+            0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+          }
+          .animate-podium-confetti {
+            animation: podium-confetti 3s ease-in-out infinite;
+          }
+          @keyframes podium-enter {
+            0% { opacity: 0; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+          }
+          .animate-podium-enter {
+            animation: podium-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          }
+          @keyframes podium-pillar {
+            0% { opacity: 0; transform: translateY(30px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-podium-pillar {
+            animation: podium-pillar 0.5s ease-out both;
+          }
+          @keyframes podium-result {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-podium-result {
+            animation: podium-result 0.4s ease-out 1s both;
+          }
+          @keyframes podium-trophy {
+            0% { transform: scale(0) rotate(-30deg); }
+            60% { transform: scale(1.3) rotate(10deg); }
+            100% { transform: scale(1) rotate(0); }
+          }
+          .animate-podium-trophy {
+            animation: podium-trophy 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 1.2s both;
+          }
+        `}</style>
+      </div>
+    )
+  }
 
   return null
 }
