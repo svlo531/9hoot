@@ -296,13 +296,16 @@ export function HostGame({
 
     setScores(newScores)
 
-    const lb = Array.from(newScores.entries())
-      .map(([id, s]) => {
-        const player = Array.from(players.values()).find((p) => p.id === id)
+    // Build leaderboard from ALL players, not just those who scored
+    const lb = Array.from(players.entries())
+      .filter(([, p]) => p.id) // Only DB-confirmed players
+      .map(([, p]) => {
+        const id = p.id!
+        const s = newScores.get(id)
         return {
           id,
-          nickname: player?.nickname || 'Unknown',
-          score: s.score,
+          nickname: p.nickname,
+          score: s?.score || 0,
           delta: deltas.get(id) || 0,
         }
       })
@@ -856,8 +859,14 @@ function LeaderboardScreen({
       <h2 className="text-3xl font-bold text-white mt-10 mb-8 animate-lb-title">Leaderboard</h2>
 
       <div className="w-full max-w-xl px-8 space-y-3">
+        {leaderboard.length === 0 && (
+          <div className="text-center py-12 animate-lb-row" style={{ animationDelay: '200ms' }}>
+            <p className="text-white/60 text-lg">No correct answers yet!</p>
+            <p className="text-white/30 text-sm mt-2">Everyone starts fresh next round</p>
+          </div>
+        )}
         {leaderboard.map((entry, i) => {
-          const isTop3 = i < 3
+          const isTop3 = i < 3 && entry.score > 0
           const medals = ['🥇', '🥈', '🥉']
           return (
             <div
