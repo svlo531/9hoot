@@ -1,17 +1,20 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ANSWER_SHAPES } from '@/lib/types'
+import { checkAnswer, calculateScore, getStreakMultiplier } from '@/lib/game-utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answered' | 'result' | 'podium'
 
 interface QuestionData {
+  id: string
   index: number
   type: string
   questionText: string
   options: { text: string }[] | null
+  correctAnswers: unknown
   timeLimit: number
   points: number
   totalQuestions: number
@@ -21,19 +24,148 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [phase, setPhase] = useState<PlayerPhase>('nickname')
   const [nickname, setNickname] = useState('')
   const [participantId, setParticipantId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [question, setQuestion] = useState<QuestionData | null>(null)
   const [selectedAnswer, setSelectedAnswer] = useState<Record<string, unknown> | null>(null)
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [pointsAwarded, setPointsAwarded] = useState(0)
   const [totalScore, setTotalScore] = useState(0)
-  const [finalRank, setFinalRank] = useState<number | null>(null)
-  const [podium, setPodium] = useState<{ nickname: string; score: number }[]>([])
+  const [streak, setStreak] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
+  const lastQuestionIndexRef = useRef<number>(-1)
+  const questionsRef = useRef<QuestionData[]>([])
   const supabase = createClient()
 
-  // Set up channel after joining
+  // Poll session state from DB — this is the primary game state mechanism
+  useEffect(() => {
+    if (!sessionId || !participantId) return
+    if (phase === 'podium') return
+
+    const interval = setInterval(async () => {
+      const { data: session } = await supabase
+        .from('sessions')
+        .select('status, current_question_index')
+        .eq('id', sessionId)
+        .single()
+
+      if (!session) return
+
+      // Game completed
+      if (session.status === 'completed') {
+        // Fetch final results
+        const { data: myParticipant } = await supabase
+          .from('participants')
+          .select('total_score, rank')
+          .eq('id', participantId)
+          .single()
+
+        if (myParticipant) {
+          setTotalScore(myParticipant.total_score || totalScore)
+        }
+        setPhase('podium')
+        return
+      }
+
+      // Game is active and question index changed — new question!
+      if (
+        session.status === 'active' &&
+        session.current_question_index >= 0 &&
+        session.current_question_index !== lastQuestionIndexRef.current
+      ) {
+        const newIndex = session.current_question_index
+
+        // If we were on a previous question and hadn't seen results yet, show them briefly
+        if (phase === 'answered' || phase === 'question') {
+          // Check if our answer for the previous question was graded
+          if (lastQuestionIndexRef.current >= 0 && selectedAnswer) {
+            const prevQ = questionsRef.current[lastQuestionIndexRef.current]
+            if (prevQ) {
+              const correct = checkAnswer(prevQ.type, selectedAnswer, prevQ.correctAnswers)
+              setIsCorrect(correct)
+              if (correct) {
+                const timeTaken = Date.now() - questionStartRef.current
+                const pts = calculateScore(prevQ.points, timeTaken, prevQ.timeLimit * 1000, true)
+                const multiplied = Math.round(pts * getStreakMultiplier(streak + 1))
+                setPointsAwarded(multiplied)
+                setTotalScore((prev) => prev + multiplied)
+                setStreak((s) => s + 1)
+              } else {
+                setStreak(0)
+                setPointsAwarded(0)
+              }
+              setPhase('result')
+              // Show result briefly then advance to new question
+              setTimeout(() => {
+                loadQuestion(newIndex)
+              }, 2000)
+              lastQuestionIndexRef.current = newIndex
+              return
+            }
+          }
+        }
+
+        // Direct advance to new question
+        lastQuestionIndexRef.current = newIndex
+        loadQuestion(newIndex)
+      }
+    }, 1500)
+
+    return () => clearInterval(interval)
+  }, [sessionId, participantId, phase, selectedAnswer, streak, supabase, totalScore])
+
+  // Load questions once after joining
+  useEffect(() => {
+    if (!sessionId) return
+
+    async function fetchQuestions() {
+      // Get quiz_id from session
+      const { data: session } = await supabase
+        .from('sessions')
+        .select('quiz_id')
+        .eq('id', sessionId)
+        .single()
+
+      if (!session) return
+
+      const { data: questions } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('quiz_id', session.quiz_id)
+        .order('sort_order', { ascending: true })
+
+      if (questions) {
+        questionsRef.current = questions.map((q, i) => ({
+          id: q.id,
+          index: i,
+          type: q.type,
+          questionText: q.question_text || '',
+          options: q.options as { text: string }[] | null,
+          correctAnswers: q.correct_answers,
+          timeLimit: q.time_limit,
+          points: q.points,
+          totalQuestions: questions.length,
+        }))
+      }
+    }
+
+    fetchQuestions()
+  }, [sessionId, supabase])
+
+  function loadQuestion(index: number) {
+    const q = questionsRef.current[index]
+    if (!q) return
+
+    setQuestion(q)
+    setSelectedAnswer(null)
+    setIsCorrect(null)
+    setPointsAwarded(0)
+    setPhase('question')
+    questionStartRef.current = Date.now()
+  }
+
+  // Set up Broadcast channel for sending answers (player → host)
   useEffect(() => {
     if (!participantId) return
 
@@ -41,56 +173,7 @@ export function PlayerGame({ pin }: { pin: string }) {
       config: { broadcast: { self: false } },
     })
 
-    channel
-      .on('broadcast', { event: 'game:start' }, () => {
-        setPhase('waiting')
-      })
-      .on('broadcast', { event: 'game:question' }, (payload) => {
-        setQuestion(payload.payload as QuestionData)
-        setSelectedAnswer(null)
-        setIsCorrect(null)
-        setPointsAwarded(0)
-        setPhase('question')
-        questionStartRef.current = Date.now()
-      })
-      .on('broadcast', { event: 'game:answer_lock' }, () => {
-        if (phase === 'question') {
-          setPhase('answered')
-        }
-      })
-      .on('broadcast', { event: 'game:results' }, (payload) => {
-        // Check if our answer was correct
-        const correctAnswers = payload.payload.correctAnswers
-        if (selectedAnswer && question) {
-          let correct = false
-          if (question.type === 'quiz') {
-            const selected = (selectedAnswer.selectedIndices as number[]) || []
-            correct = selected.length > 0 && selected.every((i: number) => (correctAnswers as number[]).includes(i))
-          } else if (question.type === 'true_false') {
-            correct = selectedAnswer.selected === (correctAnswers as boolean[])?.[0]
-          }
-          setIsCorrect(correct)
-          if (correct) {
-            const timeTaken = Date.now() - questionStartRef.current
-            const maxPts = question.points
-            const pts = Math.round(maxPts * (1 - (timeTaken / (question.timeLimit * 1000)) * 0.5))
-            setPointsAwarded(Math.max(0, pts))
-            setTotalScore((prev) => prev + Math.max(0, pts))
-          }
-        }
-        setPhase('result')
-      })
-      .on('broadcast', { event: 'game:leaderboard' }, () => {
-        setPhase('waiting')
-      })
-      .on('broadcast', { event: 'game:podium' }, (payload) => {
-        setPodium(payload.payload.podium || [])
-        // Find our rank
-        const rank = (payload.payload.podium as { id: string }[])?.findIndex((p) => p.id === participantId)
-        setFinalRank(rank !== undefined && rank >= 0 ? rank + 1 : null)
-        setPhase('podium')
-      })
-      .subscribe()
+    channel.subscribe()
 
     // Track presence
     channel.track({
@@ -103,7 +186,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     return () => {
       channel.unsubscribe()
     }
-  }, [participantId, pin, supabase])
+  }, [participantId, pin, nickname, supabase])
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault()
@@ -138,6 +221,7 @@ export function PlayerGame({ pin }: { pin: string }) {
       return
     }
 
+    setSessionId(session.id)
     setParticipantId(participant.id)
     setPhase('waiting')
   }
@@ -149,6 +233,7 @@ export function PlayerGame({ pin }: { pin: string }) {
 
     const timeTakenMs = Date.now() - questionStartRef.current
 
+    // Send via Broadcast to host for real-time answer count
     channelRef.current?.send({
       type: 'broadcast',
       event: 'player:answer',
@@ -159,6 +244,17 @@ export function PlayerGame({ pin }: { pin: string }) {
         timeTakenMs,
       },
     })
+
+    // Also write directly to DB as backup
+    supabase.from('answers').insert({
+      session_id: sessionId,
+      participant_id: participantId,
+      question_id: question.id,
+      answer_data: answerData,
+      is_correct: checkAnswer(question.type, answerData, question.correctAnswers),
+      points_awarded: 0, // Host will calculate final points
+      time_taken_ms: timeTakenMs,
+    }).then(() => {})
   }
 
   // ── RENDER ──────────────────────────────────
@@ -301,17 +397,8 @@ export function PlayerGame({ pin }: { pin: string }) {
   if (phase === 'podium') return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
       <h2 className="text-3xl font-bold text-white mb-6">Game Over!</h2>
-      {finalRank && finalRank <= 3 ? (
-        <>
-          <div className="text-6xl mb-4">🏆</div>
-          <p className="text-yellow-accent font-bold text-2xl">You finished #{finalRank}!</p>
-        </>
-      ) : (
-        <>
-          <p className="text-white font-bold text-xl">{nickname}</p>
-          <p className="text-white/60 text-lg mt-2">Final score: {totalScore} pts</p>
-        </>
-      )}
+      <p className="text-white font-bold text-xl">{nickname}</p>
+      <p className="text-white/60 text-lg mt-2">Final score: {totalScore} pts</p>
     </div>
   )
 
