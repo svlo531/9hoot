@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const OUTPUT_W = 600
@@ -100,8 +100,8 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
 }
 
 // ── CROP MODAL ──────────────────────────────────
-// Uses a simple approach: CSS transform for preview, canvas for output.
-// All coordinates are in "source image pixels" so preview and output match exactly.
+// Simple approach: track crop region in source-image coordinates.
+// The frame always shows exactly what will be exported.
 
 function CropModal({
   src,
@@ -116,73 +116,62 @@ function CropModal({
 }) {
   const frameRef = useRef<HTMLDivElement>(null)
   const imgEl = useRef<HTMLImageElement | null>(null)
+  const [frameW, setFrameW] = useState(0)
 
-  // State in source-image-pixel coordinates
   const [imgW, setImgW] = useState(0)
   const [imgH, setImgH] = useState(0)
-  const [zoom, setZoom] = useState(1) // 1 = cover fit
-  // cropX/cropY = top-left corner of the visible crop area in source coords
+  const [zoom, setZoom] = useState(1)
   const [cropX, setCropX] = useState(0)
   const [cropY, setCropY] = useState(0)
-
   const [dragging, setDragging] = useState(false)
   const [dragAnchor, setDragAnchor] = useState({ x: 0, y: 0, cx: 0, cy: 0 })
   const [ready, setReady] = useState(false)
 
-  // The "base crop" size in source pixels (at zoom=1, crop covers entire visible area)
-  // At zoom=1, the crop is as large as possible while maintaining RATIO
-  const baseCropW = imgW > 0 ? (imgW / imgH > RATIO ? imgH * RATIO : imgW) : 0
-  const baseCropH = imgH > 0 ? (imgW / imgH > RATIO ? imgH : imgW / RATIO) : 0
-
-  // Actual crop size at current zoom (smaller = more zoomed in)
-  const cropW = baseCropW / zoom
-  const cropH = baseCropH / zoom
-
-  // Max offsets to keep crop within image bounds
-  const maxCropX = Math.max(0, imgW - cropW)
-  const maxCropY = Math.max(0, imgH - cropH)
-
-  // Load image
+  // Measure the frame after DOM layout
   useEffect(() => {
+    function measure() {
+      if (frameRef.current) {
+        setFrameW(frameRef.current.clientWidth)
+      }
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  // Load image after frame is measured
+  useEffect(() => {
+    if (frameW === 0) return
     const img = new Image()
     img.onload = () => {
       imgEl.current = img
-      setImgW(img.naturalWidth)
-      setImgH(img.naturalHeight)
-      // Center crop initially
-      const bw = img.naturalWidth / img.naturalHeight > RATIO ? img.naturalHeight * RATIO : img.naturalWidth
-      const bh = img.naturalWidth / img.naturalHeight > RATIO ? img.naturalHeight : img.naturalWidth / RATIO
-      setCropX((img.naturalWidth - bw) / 2)
-      setCropY((img.naturalHeight - bh) / 2)
+      const nw = img.naturalWidth
+      const nh = img.naturalHeight
+      setImgW(nw)
+      setImgH(nh)
+
+      // At zoom=1, crop is the largest RATIO-shaped area that fits in the image
+      const bw = nw / nh > RATIO ? nh * RATIO : nw
+      const bh = nw / nh > RATIO ? nh : nw / RATIO
+      setCropX((nw - bw) / 2)
+      setCropY((nh - bh) / 2)
       setZoom(1)
       setReady(true)
     }
     img.src = src
-  }, [src])
+  }, [src, frameW])
 
-  // Get frame pixel size from DOM
-  const getFrameSize = useCallback(() => {
-    if (!frameRef.current) return { fw: 400, fh: 400 / RATIO }
-    const rect = frameRef.current.getBoundingClientRect()
-    return { fw: rect.width, fh: rect.height }
-  }, [])
+  // Derived: crop dimensions in source pixels
+  const baseCropW = imgW > 0 ? (imgW / imgH > RATIO ? imgH * RATIO : imgW) : 1
+  const baseCropH = imgH > 0 ? (imgW / imgH > RATIO ? imgH : imgW / RATIO) : 1
+  const cropW = baseCropW / zoom
+  const cropH = baseCropH / zoom
+  const frameH = frameW / RATIO
 
-  // Convert screen pixels to source-image pixels
-  function screenToSource(dx: number, dy: number) {
-    const { fw } = getFrameSize()
-    const pixelsPerSource = fw / cropW // how many screen px per source px
-    return { sx: dx / pixelsPerSource, sy: dy / pixelsPerSource }
-  }
+  // Scale factor: how many screen pixels per source pixel
+  const screenScale = frameW > 0 && cropW > 0 ? frameW / cropW : 1
 
-  // Clamp crop position
-  function clampCrop(x: number, y: number) {
-    return {
-      x: Math.max(0, Math.min(x, imgW - cropW)),
-      y: Math.max(0, Math.min(y, imgH - cropH)),
-    }
-  }
-
-  // Mouse drag
+  // Pointer handlers
   function onPointerDown(e: React.PointerEvent) {
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
@@ -194,38 +183,27 @@ function CropModal({
     if (!dragging) return
     const dx = e.clientX - dragAnchor.x
     const dy = e.clientY - dragAnchor.y
-    const { sx, sy } = screenToSource(dx, dy)
-    // Moving the mouse right means the image slides right → crop moves LEFT in source coords
-    const clamped = clampCrop(dragAnchor.cx - sx, dragAnchor.cy - sy)
-    setCropX(clamped.x)
-    setCropY(clamped.y)
+    // Convert screen movement to source pixels, invert (drag right = crop moves left)
+    const sx = dx / screenScale
+    const sy = dy / screenScale
+    setCropX(Math.max(0, Math.min(dragAnchor.cx - sx, imgW - cropW)))
+    setCropY(Math.max(0, Math.min(dragAnchor.cy - sy, imgH - cropH)))
   }
 
-  function onPointerUp() {
-    setDragging(false)
-  }
+  function onPointerUp() { setDragging(false) }
 
   function handleZoom(newZoom: number) {
     const z = Math.max(1, Math.min(4, newZoom))
-    // Zoom toward center of current crop
-    const oldCW = baseCropW / zoom
-    const oldCH = baseCropH / zoom
     const newCW = baseCropW / z
     const newCH = baseCropH / z
-    const centerX = cropX + oldCW / 2
-    const centerY = cropY + oldCH / 2
-    const nx = centerX - newCW / 2
-    const ny = centerY - newCH / 2
-    const clamped = {
-      x: Math.max(0, Math.min(nx, imgW - newCW)),
-      y: Math.max(0, Math.min(ny, imgH - newCH)),
-    }
-    setCropX(clamped.x)
-    setCropY(clamped.y)
+    // Keep center stable
+    const cx = cropX + cropW / 2
+    const cy = cropY + cropH / 2
+    setCropX(Math.max(0, Math.min(cx - newCW / 2, imgW - newCW)))
+    setCropY(Math.max(0, Math.min(cy - newCH / 2, imgH - newCH)))
     setZoom(z)
   }
 
-  // Apply: draw cropped region to canvas
   function handleApply() {
     if (!imgEl.current) return
     const canvas = document.createElement('canvas')
@@ -233,27 +211,9 @@ function CropModal({
     canvas.height = OUTPUT_H
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-
-    // Draw the crop region from source image to output canvas
-    ctx.drawImage(
-      imgEl.current,
-      cropX, cropY, cropW, cropH, // source rect
-      0, 0, OUTPUT_W, OUTPUT_H    // destination rect
-    )
-
-    canvas.toBlob(
-      (blob) => { if (blob) onCrop(blob) },
-      'image/jpeg',
-      0.9
-    )
+    ctx.drawImage(imgEl.current, cropX, cropY, cropW, cropH, 0, 0, OUTPUT_W, OUTPUT_H)
+    canvas.toBlob((blob) => { if (blob) onCrop(blob) }, 'image/jpeg', 0.9)
   }
-
-  // CSS transform: position source image so that cropX,cropY maps to frame top-left
-  // and cropW maps to frame width
-  const { fw: framePixelW } = getFrameSize()
-  const scaleCSS = ready ? framePixelW / cropW : 1
-  const translateX = ready ? -cropX * scaleCSS : 0
-  const translateY = ready ? -cropY * scaleCSS : 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
@@ -262,66 +222,52 @@ function CropModal({
           <h3 className="text-sm font-bold text-dark-text">Crop banner image</h3>
           <button onClick={onCancel} className="text-gray-text hover:text-dark-text text-sm">✕</button>
         </div>
-
         <p className="text-xs text-gray-text mb-3">Drag to position. Zoom to fit. Output: 600 x 200px</p>
 
         {/* Crop frame */}
         <div
           ref={frameRef}
           className="w-full rounded-lg overflow-hidden border-2 border-blue-cta relative bg-black"
-          style={{
-            aspectRatio: `${RATIO}`,
-            cursor: dragging ? 'grabbing' : 'grab',
-            touchAction: 'none',
-          }}
+          style={{ aspectRatio: `${RATIO}`, cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
         >
-          {ready && (
+          {ready && frameW > 0 && (
             <img
               src={src}
               alt=""
-              className="absolute top-0 left-0 pointer-events-none origin-top-left"
-              style={{
-                width: `${imgW}px`,
-                height: `${imgH}px`,
-                transform: `scale(${scaleCSS}) translate(${-cropX}px, ${-cropY}px)`,
-                transformOrigin: '0 0',
-              }}
               draggable={false}
+              className="absolute pointer-events-none"
+              style={{
+                transformOrigin: '0 0',
+                width: `${imgW * screenScale}px`,
+                height: `${imgH * screenScale}px`,
+                left: `${-cropX * screenScale}px`,
+                top: `${-cropY * screenScale}px`,
+              }}
             />
           )}
         </div>
 
         {/* Zoom */}
         <div className="flex items-center gap-3 mt-4">
-          <button
-            onClick={() => handleZoom(zoom - 0.2)}
-            className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center"
-          >−</button>
-          <input
-            type="range" min={1} max={4} step={0.05} value={zoom}
+          <button onClick={() => handleZoom(zoom - 0.2)}
+            className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center">−</button>
+          <input type="range" min={1} max={4} step={0.05} value={zoom}
             onChange={(e) => handleZoom(Number(e.target.value))}
-            className="flex-1 accent-blue-cta h-1.5"
-          />
-          <button
-            onClick={() => handleZoom(zoom + 0.2)}
-            className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center"
-          >+</button>
+            className="flex-1 accent-blue-cta h-1.5" />
+          <button onClick={() => handleZoom(zoom + 0.2)}
+            className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center">+</button>
           <span className="text-xs text-gray-text w-12 text-right tabular-nums">{Math.round(zoom * 100)}%</span>
         </div>
 
         {/* Actions */}
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={onCancel} disabled={uploading}
-            className="flex-1 h-10 border border-border-gray text-gray-text text-sm font-bold rounded-lg hover:bg-light-gray transition-colors disabled:opacity-40"
-          >Cancel</button>
-          <button
-            onClick={handleApply} disabled={uploading}
-            className="flex-1 h-10 bg-blue-cta text-white text-sm font-bold rounded-lg hover:bg-blue-accent transition-colors disabled:opacity-60"
-          >{uploading ? 'Uploading...' : 'Apply'}</button>
+          <button onClick={onCancel} disabled={uploading}
+            className="flex-1 h-10 border border-border-gray text-gray-text text-sm font-bold rounded-lg hover:bg-light-gray transition-colors disabled:opacity-40">Cancel</button>
+          <button onClick={handleApply} disabled={uploading}
+            className="flex-1 h-10 bg-blue-cta text-white text-sm font-bold rounded-lg hover:bg-blue-accent transition-colors disabled:opacity-60">{uploading ? 'Uploading...' : 'Apply'}</button>
         </div>
       </div>
     </div>
