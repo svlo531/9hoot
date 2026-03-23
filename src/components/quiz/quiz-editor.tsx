@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import type { Quiz, Question, QuestionType } from '@/lib/types'
@@ -34,16 +34,23 @@ export function QuizEditor({
   const [showTypeSelector, setShowTypeSelector] = useState(false)
   const [title, setTitle] = useState(quiz.title)
   const [saving, setSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
+  const [deletedIds, setDeletedIds] = useState<string[]>([])
+  const [toast, setToast] = useState<string | null>(null)
   const [dragQIdx, setDragQIdx] = useState<number | null>(null)
   const supabase = createClient()
   const router = useRouter()
 
   const selectedQuestion = selectedIndex >= 0 ? questions[selectedIndex] : null
 
-  const saveTitle = useCallback(async (newTitle: string) => {
-    await supabase.from('quizzes').update({ title: newTitle, updated_at: new Date().toISOString() }).eq('id', quiz.id)
-  }, [quiz.id, supabase])
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 2500)
+    return () => clearTimeout(t)
+  }, [toast])
 
+  // ── ADD QUESTION (inserts to DB for real ID, marks dirty for save) ──
   async function addQuestion(type: QuestionType) {
     setSaving(true)
     const sortOrder = questions.length
@@ -90,10 +97,9 @@ export function QuizEditor({
       .single()
 
     if (data) {
-      setQuestions([...questions, data])
+      setQuestions((prev) => [...prev, data])
       setSelectedIndex(questions.length)
-      // Update question count
-      await supabase.from('quizzes').update({ question_count: questions.length + 1, updated_at: new Date().toISOString() }).eq('id', quiz.id)
+      setIsDirty(true)
     }
 
     if (error) console.error('Failed to add question:', error)
@@ -101,48 +107,79 @@ export function QuizEditor({
     setSaving(false)
   }
 
-  async function updateQuestion(updated: Question) {
-    const newQuestions = questions.map((q) => (q.id === updated.id ? updated : q))
-    setQuestions(newQuestions)
-
-    await supabase
-      .from('questions')
-      .update({
-        question_text: updated.question_text,
-        options: updated.options,
-        correct_answers: updated.correct_answers,
-        time_limit: updated.time_limit,
-        points: updated.points,
-        media_url: updated.media_url,
-      })
-      .eq('id', updated.id)
+  // ── UPDATE QUESTION (local only) ──
+  function updateQuestion(updated: Question) {
+    setQuestions((prev) => prev.map((q) => (q.id === updated.id ? updated : q)))
+    setIsDirty(true)
   }
 
-  async function deleteQuestion(id: string) {
-    const newQuestions = questions.filter((q) => q.id !== id)
-    setQuestions(newQuestions)
-    if (selectedIndex >= newQuestions.length) {
-      setSelectedIndex(newQuestions.length - 1)
-    }
-
-    await supabase.from('questions').delete().eq('id', id)
-    await supabase.from('quizzes').update({ question_count: newQuestions.length, updated_at: new Date().toISOString() }).eq('id', quiz.id)
+  // ── DELETE QUESTION (local only, track ID for save) ──
+  function deleteQuestion(id: string) {
+    setQuestions((prev) => {
+      const filtered = prev.filter((q) => q.id !== id)
+      if (selectedIndex >= filtered.length) {
+        setSelectedIndex(filtered.length - 1)
+      }
+      return filtered
+    })
+    setDeletedIds((prev) => [...prev, id])
+    setIsDirty(true)
   }
 
-  async function reorderQuestions(fromIdx: number, toIdx: number) {
+  // ── REORDER (local only) ──
+  function reorderQuestions(fromIdx: number, toIdx: number) {
     if (fromIdx === toIdx) return
-    const reordered = [...questions]
-    const [moved] = reordered.splice(fromIdx, 1)
-    reordered.splice(toIdx, 0, moved)
-    setQuestions(reordered)
-    // Update selected index to follow the moved item
+    setQuestions((prev) => {
+      const reordered = [...prev]
+      const [moved] = reordered.splice(fromIdx, 1)
+      reordered.splice(toIdx, 0, moved)
+      return reordered
+    })
     if (selectedIndex === fromIdx) setSelectedIndex(toIdx)
     else if (fromIdx < selectedIndex && toIdx >= selectedIndex) setSelectedIndex(selectedIndex - 1)
     else if (fromIdx > selectedIndex && toIdx <= selectedIndex) setSelectedIndex(selectedIndex + 1)
-    // Persist sort_order to DB
-    await Promise.all(reordered.map((q, i) =>
-      supabase.from('questions').update({ sort_order: i }).eq('id', q.id)
-    ))
+    setIsDirty(true)
+  }
+
+  // ── SAVE ALL ──
+  async function saveAll() {
+    setSaving(true)
+    try {
+      // 1. Delete removed questions
+      if (deletedIds.length > 0) {
+        await Promise.all(deletedIds.map((id) =>
+          supabase.from('questions').delete().eq('id', id)
+        ))
+      }
+
+      // 2. Update all remaining questions (content + sort_order)
+      await Promise.all(questions.map((q, i) =>
+        supabase.from('questions').update({
+          question_text: q.question_text,
+          options: q.options,
+          correct_answers: q.correct_answers,
+          time_limit: q.time_limit,
+          points: q.points,
+          media_url: q.media_url,
+          sort_order: i,
+        }).eq('id', q.id)
+      ))
+
+      // 3. Update quiz title + question count
+      await supabase.from('quizzes').update({
+        title,
+        question_count: questions.length,
+        updated_at: new Date().toISOString(),
+      }).eq('id', quiz.id)
+
+      setDeletedIds([])
+      setIsDirty(false)
+      setToast('Saved successfully!')
+    } catch (err) {
+      console.error('Save failed:', err)
+      setToast('Save failed. Please try again.')
+    }
+    setSaving(false)
   }
 
   return (
@@ -158,15 +195,14 @@ export function QuizEditor({
         <input
           type="text"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => saveTitle(title)}
+          onChange={(e) => { setTitle(e.target.value); setIsDirty(true) }}
           className="text-sm font-bold text-dark-text bg-transparent border-none focus:outline-none flex-1"
           placeholder="Quiz title..."
         />
         <span className="text-xs text-gray-text">{questions.length} questions</span>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Left sidebar — question list */}
         <div className="w-48 bg-white border-r border-mid-gray overflow-y-auto flex-shrink-0">
           <div className="p-2 space-y-1">
@@ -280,7 +316,40 @@ export function QuizEditor({
             </div>
           </div>
         )}
+
+        {/* Save button — fixed bottom-right */}
+        {isDirty && (
+          <button
+            onClick={saveAll}
+            disabled={saving}
+            className="absolute bottom-6 right-6 h-12 px-8 bg-correct-green text-white font-bold text-sm rounded-lg shadow-xl hover:bg-green-600 transition-all hover:scale-105 active:scale-95 disabled:opacity-60 disabled:hover:scale-100 z-10 animate-save-enter"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        )}
+
+        {/* Toast notification */}
+        {toast && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-dark-text text-white text-sm font-bold px-6 py-3 rounded-lg shadow-xl z-20 animate-toast">
+            {toast}
+          </div>
+        )}
       </div>
+
+      <style jsx>{`
+        @keyframes save-enter {
+          0% { transform: translateY(20px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        .animate-save-enter { animation: save-enter 0.3s ease-out both; }
+        @keyframes toast-anim {
+          0% { transform: translate(-50%, 20px); opacity: 0; }
+          10% { transform: translate(-50%, 0); opacity: 1; }
+          90% { transform: translate(-50%, 0); opacity: 1; }
+          100% { transform: translate(-50%, -10px); opacity: 0; }
+        }
+        .animate-toast { animation: toast-anim 2.5s ease-out both; }
+      `}</style>
     </div>
   )
 }

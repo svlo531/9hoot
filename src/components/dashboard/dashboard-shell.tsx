@@ -37,7 +37,7 @@ export function DashboardShell({
       <header className="h-14 bg-blue-header flex items-center px-4 justify-between sticky top-0 z-50">
         <Link href="/library" className="flex items-center gap-2 text-white font-bold text-xl tracking-tight">
           <img src="/logos/AI-Agency-Logo-favicon.png" alt="9Hoot!" className="w-8 h-8 rounded" />
-          9Hoot<span className="text-yellow-accent">!</span>
+          {'9Hoot'}<span className="text-yellow-accent">!</span>
         </Link>
 
         <div className="flex items-center gap-3">
