@@ -81,6 +81,29 @@ export function HostGame({
     }
   }, [session.pin, supabase])
 
+  // Poll DB for participants (fallback for same-browser testing where Presence doesn't work)
+  useEffect(() => {
+    if (phase !== 'lobby') return
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('participants')
+        .select('id, nickname')
+        .eq('session_id', session.id)
+      if (data && data.length > 0) {
+        setPlayers((prev) => {
+          const next = new Map(prev)
+          for (const p of data) {
+            if (!Array.from(next.values()).some((v) => v.id === p.id)) {
+              next.set(`db-${p.id}`, { nickname: p.nickname, id: p.id })
+            }
+          }
+          return next
+        })
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [phase, session.id, supabase])
+
   // Timer countdown
   useEffect(() => {
     if (phase !== 'question' || timeLeft <= 0) return
