@@ -505,19 +505,31 @@ export function PlayerGame({ pin }: { pin: string }) {
     if (question.type === 'nps_survey') {
       return <NPSInput question={question} onSubmit={submitAnswer} />
     }
+    if (question.type === 'slider') {
+      return <SliderInput question={question} onSubmit={submitAnswer} />
+    }
+    if (question.type === 'puzzle') {
+      return <PuzzleInput question={question} onSubmit={submitAnswer} />
+    }
+    if (question.type === 'word_cloud') {
+      return <WordCloudInput question={question} onSubmit={submitAnswer} />
+    }
     return (<div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a2e' }}><p className="text-white text-center">{question.type.replace('_', ' ')} — answer on host screen</p></div>)
   }
 
   if (phase === 'answerFill') {
-    const isTextType = question && ['type_answer', 'open_ended', 'nps_survey'].includes(question.type)
-    const shape = !isTextType && selectedIndex !== null ? ANSWER_SHAPES[selectedIndex] : null
-    const fillColor = isTextType
+    const specialType = question && ['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type)
+    const shape = !specialType && selectedIndex !== null ? ANSWER_SHAPES[selectedIndex] : null
+    const fillColor = specialType
       ? (question?.type === 'nps_survey'
         ? (selectedIndex !== null && selectedIndex <= 6 ? '#E21B3C' : selectedIndex !== null && selectedIndex <= 8 ? '#D89E00' : '#26890C')
+        : question?.type === 'slider' ? '#1368CE'
+        : question?.type === 'puzzle' ? '#D89E00'
+        : question?.type === 'word_cloud' ? '#0AA3CF'
         : '#46178F')
       : (shape?.color || '#333')
-    const fillSymbol = isTextType
-      ? (question?.type === 'type_answer' ? '⌨️' : question?.type === 'nps_survey' ? `${selectedIndex}` : '💬')
+    const fillSymbol = specialType
+      ? (question?.type === 'type_answer' ? '⌨️' : question?.type === 'nps_survey' ? `${selectedIndex}` : question?.type === 'slider' ? '🎚️' : question?.type === 'puzzle' ? '🧩' : question?.type === 'word_cloud' ? '☁️' : '💬')
       : (shape?.symbol || '●')
     return (
       <div className="min-h-screen flex items-center justify-center animate-fill-expand" style={{ backgroundColor: fillColor }}>
@@ -545,7 +557,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   )
 
   if (phase === 'result') {
-    const isNonScored = question && ['open_ended', 'nps_survey', 'poll'].includes(question.type)
+    const isNonScored = question && ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(question.type)
 
     if (isNonScored) return (
       <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
@@ -799,6 +811,200 @@ function NPSInput({
           <span className="text-white/30">Not likely</span>
           <span className="text-white/30">Very likely</span>
         </div>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── SLIDER INPUT ──────────────────────────────────
+
+function SliderInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  const opts = (question.options as { min?: number; max?: number; step?: number } | null) || {}
+  const min = opts.min ?? 0
+  const max = opts.max ?? 100
+  const step = opts.step ?? 1
+  const mid = Math.round((min + max) / 2)
+  const [value, setValue] = useState(mid)
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white/60 text-sm text-center mb-2">Drag to answer</p>
+        <div className="text-center mb-6">
+          <span className="text-white text-5xl font-bold tabular-nums">{value}</span>
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => setValue(Number(e.target.value))}
+          className="w-full h-3 rounded-full appearance-none cursor-pointer accent-yellow-accent"
+          style={{ background: `linear-gradient(to right, #1368CE ${((value - min) / (max - min)) * 100}%, #ffffff30 ${((value - min) / (max - min)) * 100}%)` }}
+        />
+        <div className="flex justify-between text-white/30 text-xs mt-2">
+          <span>{min}</span>
+          <span>{max}</span>
+        </div>
+        <button
+          onClick={() => onSubmit({ value }, 0)}
+          className="w-full h-12 mt-6 bg-correct-green text-white font-bold text-base rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95"
+        >
+          Lock in: {value}
+        </button>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── PUZZLE INPUT ──────────────────────────────────
+
+function PuzzleInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  const items = (question.options as { text: string }[] | null) || []
+  // Shuffle items on mount using a stable seed
+  const [order, setOrder] = useState<number[]>(() => {
+    const indices = items.map((_, i) => i)
+    // Fisher-Yates shuffle
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]]
+    }
+    return indices
+  })
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+
+  function moveUp(pos: number) {
+    if (pos <= 0) return
+    const newOrder = [...order];
+    [newOrder[pos], newOrder[pos - 1]] = [newOrder[pos - 1], newOrder[pos]]
+    setOrder(newOrder)
+  }
+
+  function moveDown(pos: number) {
+    if (pos >= order.length - 1) return
+    const newOrder = [...order];
+    [newOrder[pos], newOrder[pos + 1]] = [newOrder[pos + 1], newOrder[pos]]
+    setOrder(newOrder)
+  }
+
+  function handleDragStart(pos: number) {
+    setDragIndex(pos)
+  }
+
+  function handleDrop(targetPos: number) {
+    if (dragIndex === null || dragIndex === targetPos) return
+    const newOrder = [...order]
+    const [moved] = newOrder.splice(dragIndex, 1)
+    newOrder.splice(targetPos, 0, moved)
+    setOrder(newOrder)
+    setDragIndex(null)
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-3">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white/60 text-sm text-center mb-3">Arrange in the correct order</p>
+        <div className="space-y-2">
+          {order.map((itemIdx, pos) => (
+            <div
+              key={itemIdx}
+              draggable
+              onDragStart={() => handleDragStart(pos)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(pos)}
+              className={`flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-xl px-3 py-3 cursor-grab active:cursor-grabbing transition-all ${
+                dragIndex === pos ? 'opacity-50 scale-95' : ''
+              }`}
+            >
+              <span className="text-white/30 text-xs font-bold w-5">{pos + 1}</span>
+              <span className="text-white font-bold text-sm flex-1">{items[itemIdx]?.text || `Item ${itemIdx + 1}`}</span>
+              <div className="flex flex-col gap-0.5">
+                <button onClick={() => moveUp(pos)} disabled={pos === 0}
+                  className="text-white/40 hover:text-white disabled:opacity-20 text-xs leading-none">▲</button>
+                <button onClick={() => moveDown(pos)} disabled={pos === order.length - 1}
+                  className="text-white/40 hover:text-white disabled:opacity-20 text-xs leading-none">▼</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => onSubmit({ order }, 0)}
+          className="w-full h-12 mt-4 bg-correct-green text-white font-bold text-base rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95"
+        >
+          Submit order
+        </button>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── WORD CLOUD INPUT ──────────────────────────────────
+
+function WordCloudInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  const [text, setText] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!text.trim()) return
+    onSubmit({ text: text.trim() }, 0)
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white/60 text-sm text-center mb-3">Enter 1-3 words</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={30}
+            autoFocus
+            placeholder="Your word(s)..."
+            className="w-full h-14 px-4 text-center text-lg font-bold text-dark-text bg-white rounded-xl border-2 border-white focus:outline-none focus:border-yellow-accent"
+          />
+          <div className="flex justify-between items-center">
+            <span className="text-white/30 text-xs">{text.length}/30</span>
+            <button
+              type="submit"
+              disabled={!text.trim()}
+              className="h-12 px-8 bg-[#0AA3CF] text-white font-bold text-base rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+            >
+              Submit
+            </button>
+          </div>
+        </form>
       </div>
       <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
     </div>

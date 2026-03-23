@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Question, QuizOption } from '@/lib/types'
+import type { Question, QuizOption, SliderOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 
 export function QuestionEditor({
@@ -45,8 +45,17 @@ export function QuestionEditor({
       {question.type === 'nps_survey' && (
         <NPSSurveyEditor question={question} onUpdate={onUpdate} />
       )}
+      {question.type === 'slider' && (
+        <SliderEditor question={question} onUpdate={onUpdate} />
+      )}
+      {question.type === 'puzzle' && (
+        <PuzzleEditor question={question} onUpdate={onUpdate} />
+      )}
+      {question.type === 'word_cloud' && (
+        <WordCloudEditor />
+      )}
       {/* Other types show a placeholder for now */}
-      {!['quiz', 'true_false', 'poll', 'type_answer', 'open_ended', 'nps_survey'].includes(question.type) && (
+      {!['quiz', 'true_false', 'poll', 'type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type) && (
         <div className="bg-white rounded-lg border border-mid-gray p-6 text-center text-gray-text text-sm">
           {question.type.replace('_', ' ')} editor — coming soon
         </div>
@@ -372,6 +381,170 @@ function NPSSurveyEditor({ question, onUpdate }: { question: Question; onUpdate:
       </div>
 
       <p className="text-xs text-gray-text">Results are segmented into Detractors, Passives, and Promoters. NPS score is calculated automatically. No points awarded.</p>
+    </div>
+  )
+}
+
+function SliderEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const opts = (question.options as SliderOptions) || { min: 0, max: 100, step: 1 }
+  const correct = (question.correct_answers as { value: number; margin?: number }) || { value: 50, margin: 5 }
+
+  const MARGINS: { label: string; value: number }[] = [
+    { label: 'None (exact)', value: 0 },
+    { label: 'Low', value: Math.round((opts.max - opts.min) * 0.05) || 1 },
+    { label: 'Medium', value: Math.round((opts.max - opts.min) * 0.1) || 2 },
+    { label: 'High', value: Math.round((opts.max - opts.min) * 0.2) || 5 },
+    { label: 'Maximum', value: Math.round((opts.max - opts.min) * 0.3) || 10 },
+  ]
+
+  function updateOpts(patch: Partial<SliderOptions>) {
+    onUpdate({ ...question, options: { ...opts, ...patch } as unknown as null })
+  }
+
+  function updateCorrect(patch: Partial<{ value: number; margin: number }>) {
+    onUpdate({ ...question, correct_answers: { ...correct, ...patch } })
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-mid-gray p-6 space-y-4">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">🎚️</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Slider</p>
+          <p className="text-xs text-gray-text">Players drag a slider to answer</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-bold text-dark-text mb-1">Min</label>
+          <input type="number" value={opts.min} onChange={(e) => updateOpts({ min: Number(e.target.value) })}
+            className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta" />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-dark-text mb-1">Max</label>
+          <input type="number" value={opts.max} onChange={(e) => updateOpts({ max: Number(e.target.value) })}
+            className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta" />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-dark-text mb-1">Step</label>
+          <input type="number" value={opts.step} onChange={(e) => updateOpts({ step: Number(e.target.value) || 1 })} min={1}
+            className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta" />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-dark-text mb-1">Correct answer</label>
+        <input type="number" value={correct.value} min={opts.min} max={opts.max} step={opts.step}
+          onChange={(e) => updateCorrect({ value: Number(e.target.value) })}
+          className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta" />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-dark-text mb-1">Answer margin</label>
+        <select value={correct.margin ?? 0} onChange={(e) => updateCorrect({ margin: Number(e.target.value) })}
+          className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta">
+          {MARGINS.map((m) => (
+            <option key={m.label} value={m.value}>{m.label} (±{m.value})</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Preview */}
+      <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
+        <p className="text-xs text-gray-text font-bold mb-2">Preview</p>
+        <input type="range" min={opts.min} max={opts.max} step={opts.step} value={correct.value} readOnly
+          className="w-full accent-purple-primary" />
+        <div className="flex justify-between text-xs text-gray-text mt-1">
+          <span>{opts.min}</span>
+          <span className="font-bold text-correct-green">{correct.value} (±{correct.margin ?? 0})</span>
+          <span>{opts.max}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PuzzleEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const items = (question.options as QuizOption[]) || []
+
+  function updateItem(index: number, text: string) {
+    const newItems = [...items]
+    newItems[index] = { ...newItems[index], text }
+    onUpdate({ ...question, options: newItems })
+  }
+
+  function addItem() {
+    if (items.length >= 6) return
+    const newItems = [...items, { text: '' }]
+    const newCorrect = Array.from({ length: newItems.length }, (_, i) => i)
+    onUpdate({ ...question, options: newItems, correct_answers: newCorrect })
+  }
+
+  function removeItem(index: number) {
+    if (items.length <= 2) return
+    const newItems = items.filter((_, i) => i !== index)
+    const newCorrect = Array.from({ length: newItems.length }, (_, i) => i)
+    onUpdate({ ...question, options: newItems, correct_answers: newCorrect })
+  }
+
+  function moveItem(from: number, to: number) {
+    if (to < 0 || to >= items.length) return
+    const newItems = [...items]
+    const [moved] = newItems.splice(from, 1)
+    newItems.splice(to, 0, moved)
+    const newCorrect = Array.from({ length: newItems.length }, (_, i) => i)
+    onUpdate({ ...question, options: newItems, correct_answers: newCorrect })
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-text font-bold uppercase tracking-wide">Items in correct order (top to bottom)</p>
+      <p className="text-xs text-gray-text">Arrange items in the correct order here. Players will see them shuffled.</p>
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2 bg-white rounded-lg border-2 border-purple-primary/30 overflow-hidden">
+          <div className="w-10 h-14 flex items-center justify-center bg-purple-primary text-white text-sm font-bold flex-shrink-0">
+            {i + 1}
+          </div>
+          <input
+            type="text"
+            value={item.text}
+            onChange={(e) => updateItem(i, e.target.value)}
+            placeholder={`Item ${i + 1}`}
+            className="flex-1 h-14 text-sm text-dark-text bg-transparent border-none focus:outline-none px-2"
+          />
+          <button onClick={() => moveItem(i, i - 1)} disabled={i === 0}
+            className="text-gray-text hover:text-dark-text disabled:opacity-20 text-sm px-1">▲</button>
+          <button onClick={() => moveItem(i, i + 1)} disabled={i === items.length - 1}
+            className="text-gray-text hover:text-dark-text disabled:opacity-20 text-sm px-1">▼</button>
+          {items.length > 2 && (
+            <button onClick={() => removeItem(i)} className="text-gray-text hover:text-answer-red mr-2 text-sm">✕</button>
+          )}
+        </div>
+      ))}
+      {items.length < 6 && (
+        <button onClick={addItem}
+          className="w-full h-10 border-2 border-dashed border-mid-gray rounded-lg text-sm text-gray-text hover:border-purple-primary hover:text-purple-primary transition-colors">
+          + Add item
+        </button>
+      )}
+    </div>
+  )
+}
+
+function WordCloudEditor() {
+  return (
+    <div className="bg-white rounded-lg border border-mid-gray p-6">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">☁️</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Word Cloud</p>
+          <p className="text-xs text-gray-text">Players type 1-3 words. Popular responses appear larger.</p>
+        </div>
+      </div>
+      <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
+        <p className="text-xs text-gray-text italic">Responses are aggregated into an animated word cloud on the host screen. More popular words appear larger. No points awarded.</p>
+      </div>
     </div>
   )
 }

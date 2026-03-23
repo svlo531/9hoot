@@ -55,6 +55,10 @@ export function QuizEditor({
       ? [{ text: '' }, { text: '' }, { text: '' }, { text: '' }]
       : type === 'nps_survey'
       ? { question_label: 'How likely are you to recommend?' }
+      : type === 'slider'
+      ? { min: 0, max: 100, step: 1 }
+      : type === 'puzzle'
+      ? [{ text: '' }, { text: '' }, { text: '' }, { text: '' }]
       : null
 
     const defaultCorrect = type === 'quiz'
@@ -63,6 +67,10 @@ export function QuizEditor({
       ? [true]
       : type === 'type_answer'
       ? [{ text: '', case_sensitive: false }]
+      : type === 'slider'
+      ? { value: 50, margin: 5 }
+      : type === 'puzzle'
+      ? [0, 1, 2, 3]
       : null
 
     const { data, error } = await supabase

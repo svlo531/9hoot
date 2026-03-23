@@ -417,7 +417,7 @@ export function HostGame({
   )
 
   if (phase === 'results' && currentQuestion) {
-    const isNonScored = ['open_ended', 'nps_survey', 'poll'].includes(currentQuestion.type)
+    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(currentQuestion.type)
     return (
       <ResultsScreen
         question={currentQuestion}
@@ -709,8 +709,48 @@ function QuestionScreen({
         </div>
       )}
 
+      {question.type === 'slider' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center w-full max-w-lg animate-answer-slide">
+            <div className="text-5xl mb-4">🎚️</div>
+            <p className="text-white font-bold text-xl mb-4">Drag to answer!</p>
+            {(() => {
+              const sOpts = question.options as { min?: number; max?: number } | null
+              return (
+                <div className="flex justify-between text-white/40 text-sm">
+                  <span>{sOpts?.min ?? 0}</span>
+                  <span>{sOpts?.max ?? 100}</span>
+                </div>
+              )
+            })()}
+            <div className="w-full h-3 bg-white/20 rounded-full mt-2" />
+            <p className="text-white/40 text-sm mt-4">{answerCount} of {playerCount} answered</p>
+          </div>
+        </div>
+      )}
+
+      {question.type === 'puzzle' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center animate-answer-slide">
+            <div className="text-5xl mb-4">🧩</div>
+            <p className="text-white font-bold text-xl">Put them in order!</p>
+            <p className="text-white/40 text-sm mt-2">{answerCount} of {playerCount} answered</p>
+          </div>
+        </div>
+      )}
+
+      {question.type === 'word_cloud' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center animate-answer-slide">
+            <div className="text-5xl mb-4">☁️</div>
+            <p className="text-white font-bold text-xl">Type your word!</p>
+            <p className="text-white/40 text-sm mt-2">{answerCount} of {playerCount} responded</p>
+          </div>
+        </div>
+      )}
+
       {/* Standard answer options (quiz, true_false, poll) */}
-      {options.length > 0 && !['type_answer', 'open_ended', 'nps_survey'].includes(question.type) && (
+      {options.length > 0 && !['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type) && (
         <div className="flex-1 px-8 pb-6">
           <div className={`grid gap-3 h-full ${options.length <= 2 ? 'grid-cols-2' : options.length <= 4 ? 'grid-cols-2 grid-rows-2' : 'grid-cols-3 grid-rows-2'}`}>
             {options.map((opt, i) => {
@@ -920,6 +960,158 @@ function ResultsScreen({
         <div className="flex justify-end px-8 pb-6">
           <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
         </div>
+      </div>
+    )
+  }
+
+  // Slider results — show correct value + answer distribution
+  if (question.type === 'slider') {
+    const sOpts = (question.options as { min?: number; max?: number } | null) || {}
+    const correct = (question.correct_answers as { value: number; margin?: number }) || { value: 50, margin: 0 }
+    const playerValues = answers.map((a) => (a.answerData.value as number) ?? null).filter((v): v is number => v !== null)
+    const correctCount = answers.filter((a) => checkAnswer('slider', a.answerData, question.correct_answers)).length
+    const avgValue = playerValues.length > 0 ? (playerValues.reduce((a, b) => a + b, 0) / playerValues.length).toFixed(1) : '—'
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          <div className="mb-6 text-center">
+            <p className="text-white/50 text-sm font-bold mb-1">Correct answer</p>
+            <div className="bg-correct-green rounded-lg px-8 py-3 shadow-lg animate-results-check inline-block">
+              <span className="text-white font-bold text-3xl">{correct.value}</span>
+              {(correct.margin ?? 0) > 0 && <span className="text-white/70 text-lg ml-2">(±{correct.margin})</span>}
+            </div>
+          </div>
+
+          <div className="flex items-end gap-12 mb-4">
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#26890C', height: barsVisible ? `${Math.max((correctCount / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms' }} />
+              <span className="text-correct-green font-bold text-sm">Within range</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{answers.length - correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#E21B3C', height: barsVisible ? `${Math.max(((answers.length - correctCount) / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms', transitionDelay: '100ms' }} />
+              <span className="text-answer-red font-bold text-sm">Outside range</span>
+            </div>
+          </div>
+
+          <p className="text-white/40 text-sm">Average answer: {avgValue} | Range: {sOpts.min ?? 0}–{sOpts.max ?? 100}</p>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
+      </div>
+    )
+  }
+
+  // Puzzle results — show correct order + how many got it right
+  if (question.type === 'puzzle') {
+    const items = (question.options as { text: string }[]) || []
+    const correctCount = answers.filter((a) => checkAnswer('puzzle', a.answerData, question.correct_answers)).length
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          <p className="text-white/50 text-sm font-bold mb-3">Correct order</p>
+          <div className="space-y-2 mb-6 w-full max-w-md">
+            {items.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 bg-correct-green/20 border border-correct-green/40 rounded-lg px-4 py-2 animate-response-card" style={{ animationDelay: `${i * 100}ms` }}>
+                <span className="text-correct-green font-bold text-lg w-6">{i + 1}</span>
+                <span className="text-white font-bold text-sm">{item.text}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-end gap-12">
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#26890C', height: barsVisible ? `${Math.max((correctCount / Math.max(answers.length, 1)) * 120, 8)}px` : '4px', transitionDuration: '700ms' }} />
+              <span className="text-correct-green font-bold text-sm">Perfect</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{answers.length - correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#E21B3C', height: barsVisible ? `${Math.max(((answers.length - correctCount) / Math.max(answers.length, 1)) * 120, 8)}px` : '4px', transitionDuration: '700ms', transitionDelay: '100ms' }} />
+              <span className="text-answer-red font-bold text-sm">Wrong order</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
+      </div>
+    )
+  }
+
+  // Word Cloud results — animated cloud
+  if (question.type === 'word_cloud') {
+    const wordMap = new Map<string, number>()
+    for (const a of answers) {
+      const word = ((a.answerData.text as string) || '').trim().toLowerCase()
+      if (word) wordMap.set(word, (wordMap.get(word) || 0) + 1)
+    }
+    const words = Array.from(wordMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)
+    const maxFreq = Math.max(...words.map(([, c]) => c), 1)
+    const cloudColors = ['#E21B3C', '#1368CE', '#D89E00', '#26890C', '#0AA3CF', '#B8116E', '#FFD700', '#FF69B4']
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center px-8 pb-4">
+          {words.length === 0 ? (
+            <p className="text-white/40 text-sm">No responses yet</p>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-3 max-w-3xl">
+              {words.map(([word, count], i) => {
+                const scale = 0.7 + (count / maxFreq) * 1.8
+                return (
+                  <span
+                    key={word}
+                    className="font-bold transition-all animate-cloud-word"
+                    style={{
+                      fontSize: `${scale}rem`,
+                      color: cloudColors[i % cloudColors.length],
+                      animationDelay: `${i * 60}ms`,
+                    }}
+                  >
+                    {word}
+                    {count > 1 && <sup className="text-white/40 text-xs ml-0.5">{count}</sup>}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between items-center px-8 pb-6">
+          <span className="text-white/30 text-sm">{answers.length} response{answers.length !== 1 ? 's' : ''}</span>
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+
+        <style jsx>{`@keyframes cloud-word { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } } .animate-cloud-word { animation: cloud-word 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
       </div>
     )
   }
