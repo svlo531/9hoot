@@ -146,41 +146,47 @@ export function QuizEditor({
   // ── SAVE ALL ──
   async function saveAll() {
     setSaving(true)
-    try {
-      // 1. Delete removed questions
-      if (deletedIds.length > 0) {
-        await Promise.all(deletedIds.map((id) =>
-          supabase.from('questions').delete().eq('id', id)
-        ))
-      }
+    const errors: string[] = []
 
-      // 2. Update all remaining questions (content + sort_order)
-      await Promise.all(questions.map((q, i) =>
-        supabase.from('questions').update({
-          question_text: q.question_text,
-          options: q.options,
-          correct_answers: q.correct_answers,
-          time_limit: q.time_limit,
-          points: q.points,
-          media_url: q.media_url,
-          sort_order: i,
-        }).eq('id', q.id)
-      ))
+    // 1. Delete removed questions
+    for (const id of deletedIds) {
+      const { error } = await supabase.from('questions').delete().eq('id', id)
+      if (error) errors.push(`Delete ${id}: ${error.message}`)
+    }
 
-      // 3. Update quiz title + question count + cover image
-      await supabase.from('quizzes').update({
-        title,
-        cover_image_url: coverImageUrl,
-        question_count: questions.length,
-        updated_at: new Date().toISOString(),
-      }).eq('id', quiz.id)
+    // 2. Update all remaining questions (content + sort_order)
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i]
+      const { error } = await supabase.from('questions').update({
+        question_text: q.question_text,
+        options: q.options,
+        correct_answers: q.correct_answers,
+        time_limit: q.time_limit,
+        points: q.points,
+        media_url: q.media_url,
+        sort_order: i,
+      }).eq('id', q.id)
+      if (error) errors.push(`Update Q${i + 1}: ${error.message}`)
+    }
 
+    // 3. Update quiz title + question count + cover image
+    const { error: quizError } = await supabase.from('quizzes').update({
+      title,
+      cover_image_url: coverImageUrl,
+      question_count: questions.length,
+      updated_at: new Date().toISOString(),
+    }).eq('id', quiz.id)
+    if (quizError) errors.push(`Quiz update: ${quizError.message}`)
+
+    if (errors.length > 0) {
+      console.error('Save errors:', errors)
+      setToast('Some changes failed to save. Check console.')
+    } else {
       setDeletedIds([])
       setIsDirty(false)
       setToast('Saved successfully!')
-    } catch (err) {
-      console.error('Save failed:', err)
-      setToast('Save failed. Please try again.')
+      // Force Next.js to re-fetch server data on next navigation
+      router.refresh()
     }
     setSaving(false)
   }
