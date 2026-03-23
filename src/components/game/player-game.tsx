@@ -6,7 +6,7 @@ import { ANSWER_SHAPES } from '@/lib/types'
 import { checkAnswer, calculateScore, getStreakMultiplier } from '@/lib/game-utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answered' | 'result' | 'podium'
+type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answered' | 'result' | 'ranking' | 'podium'
 
 interface QuestionData {
   id: string
@@ -31,6 +31,8 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [pointsAwarded, setPointsAwarded] = useState(0)
   const [totalScore, setTotalScore] = useState(0)
   const [streak, setStreak] = useState(0)
+  const [currentRank, setCurrentRank] = useState<number | null>(null)
+  const [playerCount, setPlayerCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
@@ -215,8 +217,25 @@ export function PlayerGame({ pin }: { pin: string }) {
       setPointsAwarded(0)
     }
 
-    // Show result immediately
+    // Show result immediately, then transition to ranking after 2.5s
     setPhase('result')
+    setTimeout(async () => {
+      // Fetch rank from DB
+      if (sessionId) {
+        const { data: participants } = await supabase
+          .from('participants')
+          .select('id, total_score')
+          .eq('session_id', sessionId)
+          .order('total_score', { ascending: false })
+
+        if (participants) {
+          setPlayerCount(participants.length)
+          const myIndex = participants.findIndex((p) => p.id === participantId)
+          setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
+        }
+      }
+      setPhase('ranking')
+    }, 2500)
 
     // Send via Broadcast to host for real-time answer count
     channelRef.current?.send({
@@ -230,15 +249,22 @@ export function PlayerGame({ pin }: { pin: string }) {
       },
     })
 
-    // Also write directly to DB as backup
+    // Write answer to DB
+    const earnedPts = correct ? calculateScore(question.points, timeTakenMs, question.timeLimit * 1000, true) : 0
     supabase.from('answers').insert({
       session_id: sessionId,
       participant_id: participantId,
       question_id: question.id,
       answer_data: answerData,
       is_correct: correct,
-      points_awarded: correct ? calculateScore(question.points, timeTakenMs, question.timeLimit * 1000, true) : 0,
+      points_awarded: earnedPts,
       time_taken_ms: timeTakenMs,
+    }).then(() => {})
+
+    // Update participant total_score in DB so rank queries work
+    supabase.rpc('increment_participant_score', {
+      participant_id_input: participantId,
+      points_input: earnedPts,
     }).then(() => {})
   }
 
@@ -379,11 +405,46 @@ export function PlayerGame({ pin }: { pin: string }) {
     </div>
   )
 
+  if (phase === 'ranking') return (
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #1a0a3e 100%)' }}>
+      <div className="text-center">
+        {currentRank && (
+          <div className="mb-4">
+            <div className="text-6xl font-bold text-white mb-1">
+              {currentRank === 1 ? '🥇' : currentRank === 2 ? '🥈' : currentRank === 3 ? '🥉' : `#${currentRank}`}
+            </div>
+            <p className="text-white/80 text-lg font-bold">
+              {currentRank === 1 ? '1st place!' : currentRank === 2 ? '2nd place!' : currentRank === 3 ? '3rd place!' : `${currentRank}th place`}
+            </p>
+            {playerCount > 0 && (
+              <p className="text-white/50 text-sm mt-1">out of {playerCount} player{playerCount !== 1 ? 's' : ''}</p>
+            )}
+          </div>
+        )}
+        <p className="text-white font-bold text-xl">{nickname}</p>
+        <p className="text-white/60 text-sm mt-1">{totalScore} points</p>
+        {streak > 1 && (
+          <p className="text-yellow-accent text-sm mt-2 font-bold">🔥 {streak} answer streak!</p>
+        )}
+        <p className="text-white/30 text-xs mt-6 animate-pulse">Waiting for next question...</p>
+      </div>
+    </div>
+  )
+
   if (phase === 'podium') return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
-      <h2 className="text-3xl font-bold text-white mb-6">Game Over!</h2>
+      <h2 className="text-3xl font-bold text-white mb-4">Game Over!</h2>
+      {currentRank && currentRank <= 3 && (
+        <div className="text-6xl mb-4">{currentRank === 1 ? '🏆' : currentRank === 2 ? '🥈' : '🥉'}</div>
+      )}
       <p className="text-white font-bold text-xl">{nickname}</p>
-      <p className="text-white/60 text-lg mt-2">Final score: {totalScore} pts</p>
+      {currentRank && (
+        <p className="text-yellow-accent font-bold text-lg mt-2">
+          Finished {currentRank === 1 ? '1st' : currentRank === 2 ? '2nd' : currentRank === 3 ? '3rd' : `${currentRank}th`}
+          {playerCount > 0 ? ` out of ${playerCount}` : ''}
+        </p>
+      )}
+      <p className="text-white/60 text-lg mt-1">Final score: {totalScore} pts</p>
     </div>
   )
 

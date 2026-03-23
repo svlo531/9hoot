@@ -696,17 +696,21 @@ function PodiumScreen({
   podium: { id: string; nickname: string; score: number }[]
   quizTitle: string
 }) {
-  const podiumColors = ['#FFD700', '#C0C0C0', '#CD7F32']
-  const podiumHeights = [200, 160, 130]
-  // Reorder: 2nd, 1st, 3rd
-  const ordered = [podium[1], podium[0], podium[2]].filter(Boolean)
-  const orderedColors = [podiumColors[1], podiumColors[0], podiumColors[2]]
-  const orderedHeights = [podiumHeights[1], podiumHeights[0], podiumHeights[2]]
-  const orderedLabels = ['2nd', '1st', '3rd']
+  const podiumConfig = [
+    { color: '#FFD700', height: 200, label: '1st' },
+    { color: '#C0C0C0', height: 160, label: '2nd' },
+    { color: '#CD7F32', height: 130, label: '3rd' },
+  ]
+
+  // Visual order: 2nd, 1st, 3rd (only if 3 players)
+  // With fewer players, just show them in order
+  const displayOrder = podium.length >= 3
+    ? [{ entry: podium[1], config: podiumConfig[1] }, { entry: podium[0], config: podiumConfig[0] }, { entry: podium[2], config: podiumConfig[2] }]
+    : podium.map((entry, i) => ({ entry, config: podiumConfig[i] }))
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
-      {/* Confetti placeholder */}
+      {/* Confetti */}
       <div className="absolute inset-0 pointer-events-none">
         {Array.from({ length: 40 }).map((_, i) => (
           <div
@@ -729,18 +733,18 @@ function PodiumScreen({
 
       {/* Podium */}
       <div className="flex items-end gap-4 z-10">
-        {ordered.map((entry, i) => entry && (
+        {displayOrder.map(({ entry, config }) => (
           <div key={entry.id} className="flex flex-col items-center">
             <span className="text-white font-bold text-lg mb-2">{entry.nickname}</span>
             <span className="text-white/80 text-sm mb-2">{entry.score} pts</span>
             <div
               className="w-32 rounded-t-lg flex items-start justify-center pt-4 transition-all duration-1000"
               style={{
-                backgroundColor: orderedColors[i],
-                height: `${orderedHeights[i]}px`,
+                backgroundColor: config.color,
+                height: `${config.height}px`,
               }}
             >
-              <span className="text-2xl font-bold text-white/90">{orderedLabels[i]}</span>
+              <span className="text-2xl font-bold text-white/90">{config.label}</span>
             </div>
           </div>
         ))}
