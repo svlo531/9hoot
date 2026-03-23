@@ -496,14 +496,32 @@ export function PlayerGame({ pin }: { pin: string }) {
         </div>
       )
     }
+    if (question.type === 'type_answer') {
+      return <TypeAnswerInput question={question} onSubmit={submitAnswer} />
+    }
+    if (question.type === 'open_ended') {
+      return <OpenEndedInput question={question} onSubmit={submitAnswer} />
+    }
+    if (question.type === 'nps_survey') {
+      return <NPSInput question={question} onSubmit={submitAnswer} />
+    }
     return (<div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a2e' }}><p className="text-white text-center">{question.type.replace('_', ' ')} — answer on host screen</p></div>)
   }
 
   if (phase === 'answerFill') {
-    const shape = selectedIndex !== null ? ANSWER_SHAPES[selectedIndex] : null
+    const isTextType = question && ['type_answer', 'open_ended', 'nps_survey'].includes(question.type)
+    const shape = !isTextType && selectedIndex !== null ? ANSWER_SHAPES[selectedIndex] : null
+    const fillColor = isTextType
+      ? (question?.type === 'nps_survey'
+        ? (selectedIndex !== null && selectedIndex <= 6 ? '#E21B3C' : selectedIndex !== null && selectedIndex <= 8 ? '#D89E00' : '#26890C')
+        : '#46178F')
+      : (shape?.color || '#333')
+    const fillSymbol = isTextType
+      ? (question?.type === 'type_answer' ? '⌨️' : question?.type === 'nps_survey' ? `${selectedIndex}` : '💬')
+      : (shape?.symbol || '●')
     return (
-      <div className="min-h-screen flex items-center justify-center animate-fill-expand" style={{ backgroundColor: shape?.color || '#333' }}>
-        <span className="text-white text-8xl animate-fill-symbol">{shape?.symbol || '●'}</span>
+      <div className="min-h-screen flex items-center justify-center animate-fill-expand" style={{ backgroundColor: fillColor }}>
+        <span className="text-white text-8xl animate-fill-symbol">{fillSymbol}</span>
         <style jsx>{`
           @keyframes fill-expand { 0% { transform: scale(0.3); border-radius: 50%; } 100% { transform: scale(1); border-radius: 0; } } .animate-fill-expand { animation: fill-expand 0.3s ease-out both; }
           @keyframes fill-symbol { 0% { transform: scale(2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-fill-symbol { animation: fill-symbol 0.2s ease-out 0.15s both; }
@@ -526,7 +544,24 @@ export function PlayerGame({ pin }: { pin: string }) {
     </div>
   )
 
-  if (phase === 'result') return (
+  if (phase === 'result') {
+    const isNonScored = question && ['open_ended', 'nps_survey', 'poll'].includes(question.type)
+
+    if (isNonScored) return (
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
+        <div className="w-24 h-24 rounded-full bg-purple-primary/30 flex items-center justify-center mb-4 animate-result-icon">
+          <span className="text-white text-4xl">✓</span>
+        </div>
+        <p className="text-white font-bold text-2xl animate-result-text">Response sent!</p>
+        <p className="text-white/40 text-sm mt-3">Waiting for results...</p>
+        <style jsx>{`
+          @keyframes result-icon { 0% { transform: scale(0); } 50% { transform: scale(1.3); } 70% { transform: scale(0.9); } 100% { transform: scale(1); } } .animate-result-icon { animation: result-icon 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+          @keyframes result-text { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } } .animate-result-text { animation: result-text 0.3s ease-out 0.2s both; }
+        `}</style>
+      </div>
+    )
+
+    return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: isCorrect ? 'linear-gradient(135deg, #1a5c2a 0%, #0a3d1a 100%)' : 'linear-gradient(135deg, #5c1a1a 0%, #3d0a0a 100%)' }}>
       <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-4 animate-result-icon ${isCorrect ? 'bg-correct-green' : 'bg-answer-red'}`}>
         <span className="text-white text-4xl font-bold">{isCorrect ? '✓' : '✕'}</span>
@@ -542,6 +577,7 @@ export function PlayerGame({ pin }: { pin: string }) {
       `}</style>
     </div>
   )
+  }
 
   if (phase === 'ranking') return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #1a0a3e 100%)' }}>
@@ -623,4 +659,148 @@ export function PlayerGame({ pin }: { pin: string }) {
   }
 
   return null
+}
+
+// ── TYPE ANSWER INPUT ──────────────────────────────────
+
+function TypeAnswerInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  const [text, setText] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!text.trim()) return
+    onSubmit({ text: text.trim() }, 0)
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white/60 text-sm text-center mb-3">Type your answer</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={20}
+            autoFocus
+            placeholder="Your answer..."
+            className="w-full h-14 px-4 text-center text-lg font-bold text-dark-text bg-white rounded-xl border-2 border-white focus:outline-none focus:border-yellow-accent"
+          />
+          <div className="flex justify-between items-center">
+            <span className="text-white/30 text-xs">{text.length}/20</span>
+            <button
+              type="submit"
+              disabled={!text.trim()}
+              className="h-12 px-8 bg-correct-green text-white font-bold text-base rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+            >
+              Submit
+            </button>
+          </div>
+        </form>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── OPEN-ENDED INPUT ──────────────────────────────────
+
+function OpenEndedInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  const [text, setText] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!text.trim()) return
+    onSubmit({ text: text.trim() }, 0)
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white/60 text-sm text-center mb-3">Share your thoughts</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={250}
+            autoFocus
+            placeholder="Type your response..."
+            rows={4}
+            className="w-full px-4 py-3 text-base text-dark-text bg-white rounded-xl border-2 border-white focus:outline-none focus:border-yellow-accent resize-none"
+          />
+          <div className="flex justify-between items-center">
+            <span className="text-white/30 text-xs">{text.length}/250</span>
+            <button
+              type="submit"
+              disabled={!text.trim()}
+              className="h-12 px-8 bg-purple-primary text-white font-bold text-base rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+            >
+              Submit
+            </button>
+          </div>
+        </form>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── NPS INPUT ──────────────────────────────────
+
+function NPSInput({
+  question,
+  onSubmit,
+}: {
+  question: QuestionData
+  onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
+}) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-sm animate-answer-pop">
+        <p className="text-white text-center font-bold text-lg mb-2">{question.questionText}</p>
+        <p className="text-white/40 text-xs text-center mb-6">Select a score</p>
+        <div className="grid grid-cols-4 gap-2">
+          {Array.from({ length: 11 }, (_, i) => (
+            <button
+              key={i}
+              onClick={() => onSubmit({ score: i }, i)}
+              className="h-14 rounded-xl text-white font-bold text-lg shadow-lg transition-all hover:scale-110 active:scale-90 animate-answer-pop"
+              style={{
+                backgroundColor: i <= 6 ? '#E21B3C' : i <= 8 ? '#D89E00' : '#26890C',
+                animationDelay: `${i * 40}ms`,
+              }}
+            >
+              {i}
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-between mt-3 text-[10px]">
+          <span className="text-white/30">Not likely</span>
+          <span className="text-white/30">Very likely</span>
+        </div>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
 }

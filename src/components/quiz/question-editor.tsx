@@ -36,10 +36,19 @@ export function QuestionEditor({
       {question.type === 'poll' && (
         <PollEditor question={question} onUpdate={onUpdate} />
       )}
+      {question.type === 'type_answer' && (
+        <TypeAnswerEditor question={question} onUpdate={onUpdate} />
+      )}
+      {question.type === 'open_ended' && (
+        <OpenEndedEditor />
+      )}
+      {question.type === 'nps_survey' && (
+        <NPSSurveyEditor question={question} onUpdate={onUpdate} />
+      )}
       {/* Other types show a placeholder for now */}
-      {!['quiz', 'true_false', 'poll'].includes(question.type) && (
+      {!['quiz', 'true_false', 'poll', 'type_answer', 'open_ended', 'nps_survey'].includes(question.type) && (
         <div className="bg-white rounded-lg border border-mid-gray p-6 text-center text-gray-text text-sm">
-          {question.type.replace('_', ' ')} editor — coming in Session 4-6
+          {question.type.replace('_', ' ')} editor — coming soon
         </div>
       )}
     </div>
@@ -218,6 +227,151 @@ function PollEditor({ question, onUpdate }: { question: Question; onUpdate: (q: 
           + Add option
         </button>
       )}
+    </div>
+  )
+}
+
+function TypeAnswerEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const answers = (question.correct_answers as { text: string; case_sensitive?: boolean }[]) || []
+
+  function updateAnswer(index: number, text: string) {
+    const newAnswers = [...answers]
+    newAnswers[index] = { ...newAnswers[index], text }
+    onUpdate({ ...question, correct_answers: newAnswers })
+  }
+
+  function toggleCaseSensitive(index: number) {
+    const newAnswers = [...answers]
+    newAnswers[index] = { ...newAnswers[index], case_sensitive: !newAnswers[index].case_sensitive }
+    onUpdate({ ...question, correct_answers: newAnswers })
+  }
+
+  function addAnswer() {
+    if (answers.length >= 6) return
+    onUpdate({ ...question, correct_answers: [...answers, { text: '', case_sensitive: false }] })
+  }
+
+  function removeAnswer(index: number) {
+    if (answers.length <= 1) return
+    onUpdate({ ...question, correct_answers: answers.filter((_, i) => i !== index) })
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-text font-bold uppercase tracking-wide">Accepted answers</p>
+      {answers.map((answer, i) => (
+        <div key={i} className="flex items-center gap-2 bg-white rounded-lg border-2 border-correct-green overflow-hidden">
+          <div className="w-10 h-14 flex items-center justify-center bg-correct-green text-white text-lg flex-shrink-0">
+            ✓
+          </div>
+          <input
+            type="text"
+            value={answer.text}
+            onChange={(e) => updateAnswer(i, e.target.value)}
+            placeholder={`Accepted answer ${i + 1}`}
+            maxLength={20}
+            className="flex-1 h-14 text-sm text-dark-text bg-transparent border-none focus:outline-none px-2"
+          />
+          <button
+            onClick={() => toggleCaseSensitive(i)}
+            className={`text-xs px-2 py-1 rounded mr-1 transition-colors ${
+              answer.case_sensitive
+                ? 'bg-blue-cta text-white'
+                : 'bg-light-gray text-gray-text hover:bg-mid-gray'
+            }`}
+            title="Case sensitive"
+          >
+            Aa
+          </button>
+          {answers.length > 1 && (
+            <button
+              onClick={() => removeAnswer(i)}
+              className="text-gray-text hover:text-answer-red mr-2 text-sm"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
+      {answers.length < 6 && (
+        <button
+          onClick={addAnswer}
+          className="w-full h-10 border-2 border-dashed border-mid-gray rounded-lg text-sm text-gray-text hover:border-correct-green hover:text-correct-green transition-colors"
+        >
+          + Add accepted answer
+        </button>
+      )}
+      <p className="text-xs text-gray-text">Players type a short answer (max 20 chars). Punctuation is ignored when checking.</p>
+    </div>
+  )
+}
+
+function OpenEndedEditor() {
+  return (
+    <div className="bg-white rounded-lg border border-mid-gray p-6">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">💬</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Open-ended response</p>
+          <p className="text-xs text-gray-text">Players type a free text response (up to 250 characters)</p>
+        </div>
+      </div>
+      <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
+        <p className="text-xs text-gray-text italic">Responses will be displayed on a scrollable wall on the host screen. No points are awarded.</p>
+      </div>
+    </div>
+  )
+}
+
+function NPSSurveyEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const options = (question.options as { question_label?: string } | null) || {}
+  const label = options.question_label || ''
+
+  return (
+    <div className="bg-white rounded-lg border border-mid-gray p-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">📈</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">NPS / Survey Scale</p>
+          <p className="text-xs text-gray-text">Players select a score from 0 to 10</p>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-dark-text mb-1">Scale label (optional)</label>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => onUpdate({ ...question, options: { question_label: e.target.value } as unknown as null })}
+          placeholder="How likely are you to recommend?"
+          className="w-full h-10 px-3 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
+        />
+      </div>
+
+      {/* Preview */}
+      <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
+        <p className="text-xs text-gray-text font-bold mb-2">Preview</p>
+        <div className="flex gap-1 justify-center">
+          {Array.from({ length: 11 }, (_, i) => (
+            <div
+              key={i}
+              className="w-7 h-7 rounded text-xs font-bold flex items-center justify-center text-white"
+              style={{
+                backgroundColor: i <= 6 ? '#E21B3C' : i <= 8 ? '#D89E00' : '#26890C',
+              }}
+            >
+              {i}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-between mt-1 text-[10px] text-gray-text">
+          <span>Detractors (0-6)</span>
+          <span>Passives (7-8)</span>
+          <span>Promoters (9-10)</span>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-text">Results are segmented into Detractors, Passives, and Promoters. NPS score is calculated automatically. No points awarded.</p>
     </div>
   )
 }

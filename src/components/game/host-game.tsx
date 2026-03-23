@@ -416,13 +416,16 @@ export function HostGame({
     />
   )
 
-  if (phase === 'results' && currentQuestion) return (
-    <ResultsScreen
-      question={currentQuestion}
-      answers={answers}
-      onNext={showLeaderboard}
-    />
-  )
+  if (phase === 'results' && currentQuestion) {
+    const isNonScored = ['open_ended', 'nps_survey', 'poll'].includes(currentQuestion.type)
+    return (
+      <ResultsScreen
+        question={currentQuestion}
+        answers={answers}
+        onNext={isNonScored ? nextQuestion : showLeaderboard}
+      />
+    )
+  }
 
   if (phase === 'leaderboard') return (
     <LeaderboardScreen
@@ -664,8 +667,50 @@ function QuestionScreen({
         </div>
       )}
 
-      {/* Answer options */}
-      {options.length > 0 && (
+      {/* Answer area — varies by type */}
+      {question.type === 'type_answer' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center animate-answer-slide">
+            <div className="text-5xl mb-4">⌨️</div>
+            <p className="text-white font-bold text-xl">Type your answer!</p>
+            <p className="text-white/40 text-sm mt-2">{answerCount} of {playerCount} answered</p>
+          </div>
+        </div>
+      )}
+
+      {question.type === 'open_ended' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center animate-answer-slide">
+            <div className="text-5xl mb-4">💬</div>
+            <p className="text-white font-bold text-xl">Share your thoughts!</p>
+            <p className="text-white/40 text-sm mt-2">{answerCount} of {playerCount} responded</p>
+          </div>
+        </div>
+      )}
+
+      {question.type === 'nps_survey' && (
+        <div className="flex-1 flex flex-col items-center justify-center px-8 pb-6 animate-answer-slide">
+          <div className="flex gap-2 mb-4">
+            {Array.from({ length: 11 }, (_, i) => (
+              <div
+                key={i}
+                className="w-12 h-12 rounded-lg text-white font-bold text-lg flex items-center justify-center shadow-lg"
+                style={{ backgroundColor: i <= 6 ? '#E21B3C' : i <= 8 ? '#D89E00' : '#26890C' }}
+              >
+                {i}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between w-full max-w-lg text-xs text-white/40">
+            <span>Not likely</span>
+            <span>Very likely</span>
+          </div>
+          <p className="text-white/40 text-sm mt-4">{answerCount} of {playerCount} responded</p>
+        </div>
+      )}
+
+      {/* Standard answer options (quiz, true_false, poll) */}
+      {options.length > 0 && !['type_answer', 'open_ended', 'nps_survey'].includes(question.type) && (
         <div className="flex-1 px-8 pb-6">
           <div className={`grid gap-3 h-full ${options.length <= 2 ? 'grid-cols-2' : options.length <= 4 ? 'grid-cols-2 grid-rows-2' : 'grid-cols-3 grid-rows-2'}`}>
             {options.map((opt, i) => {
@@ -720,13 +765,168 @@ function ResultsScreen({
   onNext: () => void
 }) {
   const [barsVisible, setBarsVisible] = useState(false)
-  const options = (question.options as { text: string }[]) || []
-  const correctAnswers = (question.correct_answers as number[]) || []
 
   useEffect(() => {
     const t = setTimeout(() => setBarsVisible(true), 100)
     return () => clearTimeout(t)
   }, [])
+
+  // Type Answer results
+  if (question.type === 'type_answer') {
+    const accepted = (question.correct_answers as { text: string }[]) || []
+    const correctCount = answers.filter((a) => checkAnswer('type_answer', a.answerData, question.correct_answers)).length
+    const incorrectCount = answers.length - correctCount
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          {/* Correct answers reveal */}
+          <div className="mb-6">
+            <p className="text-white/60 text-sm text-center mb-3 font-bold">Correct answer{accepted.length > 1 ? 's' : ''}</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {accepted.map((a, i) => (
+                <div key={i} className="bg-correct-green rounded-lg px-6 py-3 shadow-lg animate-results-check">
+                  <span className="text-white font-bold text-xl">{a.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Correct/Incorrect bars */}
+          <div className="flex items-end gap-12">
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#26890C', height: barsVisible ? `${Math.max((correctCount / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms' }} />
+              <span className="text-correct-green font-bold text-sm">Correct</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{incorrectCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#E21B3C', height: barsVisible ? `${Math.max((incorrectCount / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms', transitionDelay: '100ms' }} />
+              <span className="text-answer-red font-bold text-sm">Incorrect</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
+      </div>
+    )
+  }
+
+  // Open-ended results — response wall
+  if (question.type === 'open_ended') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 px-8 pb-4 overflow-y-auto">
+          <p className="text-white/50 text-sm text-center mb-4">{answers.length} response{answers.length !== 1 ? 's' : ''}</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-4xl mx-auto">
+            {answers.map((a, i) => (
+              <div
+                key={i}
+                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 animate-response-card"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <p className="text-white text-sm leading-relaxed">{(a.answerData.text as string) || ''}</p>
+                <p className="text-white/30 text-xs mt-2">{a.nickname}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6 flex-shrink-0">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
+      </div>
+    )
+  }
+
+  // NPS results — segmented bar chart
+  if (question.type === 'nps_survey') {
+    const scores = answers.map((a) => (a.answerData.score as number) ?? -1).filter((s) => s >= 0)
+    const detractors = scores.filter((s) => s <= 6).length
+    const passives = scores.filter((s) => s >= 7 && s <= 8).length
+    const promoters = scores.filter((s) => s >= 9).length
+    const total = scores.length || 1
+    const npsScore = Math.round(((promoters - detractors) / total) * 100)
+    const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '—'
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          {/* NPS Score */}
+          <div className="text-center mb-8">
+            <p className="text-white/50 text-sm font-bold mb-1">NPS Score</p>
+            <div className="text-6xl font-bold text-white">{npsScore}</div>
+            <p className="text-white/40 text-sm mt-1">Average: {avgScore}/10</p>
+          </div>
+
+          {/* Segmented bar */}
+          <div className="w-full max-w-lg">
+            <div className="flex rounded-lg overflow-hidden h-12 shadow-lg">
+              {detractors > 0 && (
+                <div
+                  className="flex items-center justify-center transition-all duration-700"
+                  style={{ backgroundColor: '#E21B3C', width: barsVisible ? `${(detractors / total) * 100}%` : '0%' }}
+                >
+                  <span className="text-white font-bold text-sm">{detractors}</span>
+                </div>
+              )}
+              {passives > 0 && (
+                <div
+                  className="flex items-center justify-center transition-all duration-700"
+                  style={{ backgroundColor: '#D89E00', width: barsVisible ? `${(passives / total) * 100}%` : '0%', transitionDelay: '100ms' }}
+                >
+                  <span className="text-white font-bold text-sm">{passives}</span>
+                </div>
+              )}
+              {promoters > 0 && (
+                <div
+                  className="flex items-center justify-center transition-all duration-700"
+                  style={{ backgroundColor: '#26890C', width: barsVisible ? `${(promoters / total) * 100}%` : '0%', transitionDelay: '200ms' }}
+                >
+                  <span className="text-white font-bold text-sm">{promoters}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between mt-2 text-xs">
+              <span className="text-[#E21B3C] font-bold">Detractors ({Math.round((detractors / total) * 100)}%)</span>
+              <span className="text-[#D89E00] font-bold">Passives ({Math.round((passives / total) * 100)}%)</span>
+              <span className="text-[#26890C] font-bold">Promoters ({Math.round((promoters / total) * 100)}%)</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+      </div>
+    )
+  }
+
+  // Default results (quiz, true_false, poll) — bar chart
+  const options = (question.options as { text: string }[]) || []
+  const correctAnswers = (question.correct_answers as number[]) || []
 
   const optionCounts = options.map((_, i) => {
     return answers.filter((a) => {

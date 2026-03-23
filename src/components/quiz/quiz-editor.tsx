@@ -53,12 +53,16 @@ export function QuizEditor({
       ? [{ text: 'True' }, { text: 'False' }]
       : type === 'poll'
       ? [{ text: '' }, { text: '' }, { text: '' }, { text: '' }]
+      : type === 'nps_survey'
+      ? { question_label: 'How likely are you to recommend?' }
       : null
 
     const defaultCorrect = type === 'quiz'
       ? [0]
       : type === 'true_false'
       ? [true]
+      : type === 'type_answer'
+      ? [{ text: '', case_sensitive: false }]
       : null
 
     const { data, error } = await supabase
