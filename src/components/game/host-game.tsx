@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { GameSession, Question, Participant } from '@/lib/types'
+import type { GameSession, Question } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 import { calculateScore, getStreakMultiplier, checkAnswer } from '@/lib/game-utils'
+import { useGameAudio } from '@/lib/use-game-audio'
+import { CountdownTimer } from './countdown-timer'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-type GamePhase = 'lobby' | 'question' | 'results' | 'leaderboard' | 'podium'
+type GamePhase = 'lobby' | 'getReady' | 'question' | 'results' | 'leaderboard' | 'podium'
 
 interface PlayerAnswer {
   participantId: string
@@ -33,13 +35,20 @@ export function HostGame({
   const [leaderboard, setLeaderboard] = useState<{ id: string; nickname: string; score: number; delta: number }[]>([])
   const [scores, setScores] = useState<Map<string, { score: number; streak: number }>>(new Map())
   const [muted, setMuted] = useState(false)
+  const [getReadyCount, setGetReadyCount] = useState(3)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const questionStartRef = useRef<number>(0)
   const handleShowResultsRef = useRef<() => void>(() => {})
   const supabase = createClient()
+  const audio = useGameAudio()
 
   const currentQuestion = currentIndex >= 0 ? questions[currentIndex] : null
+
+  // Sync mute state with audio engine
+  useEffect(() => {
+    audio.setMuted(muted)
+  }, [muted, audio])
 
   // Set up Realtime channel
   useEffect(() => {
@@ -82,7 +91,7 @@ export function HostGame({
     }
   }, [session.pin, supabase])
 
-  // Poll DB for participants (fallback for same-browser testing where Presence doesn't work)
+  // Poll DB for participants (fallback)
   useEffect(() => {
     if (phase !== 'lobby') return
     const interval = setInterval(async () => {
@@ -111,7 +120,7 @@ export function HostGame({
 
     timerRef.current = setTimeout(() => {
       if (timeLeft <= 1) {
-        // Time's up — lock answers
+        audio.play('timesUp')
         channelRef.current?.send({
           type: 'broadcast',
           event: 'game:answer_lock',
@@ -119,6 +128,12 @@ export function HostGame({
         })
         handleShowResultsRef.current()
       } else {
+        // Play tick sound
+        if (timeLeft <= 6) {
+          audio.play('countdownUrgent')
+        } else {
+          audio.play('countdownTick')
+        }
         setTimeLeft(timeLeft - 1)
       }
     }, 1000)
@@ -126,13 +141,12 @@ export function HostGame({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [phase, timeLeft])
+  }, [phase, timeLeft, audio])
 
   // Check if all players answered
   useEffect(() => {
     if (phase !== 'question') return
     if (answers.length >= players.size && players.size > 0) {
-      // All players answered — auto advance
       if (timerRef.current) clearTimeout(timerRef.current)
       channelRef.current?.send({
         type: 'broadcast',
@@ -143,7 +157,7 @@ export function HostGame({
     }
   }, [answers.length, players.size, phase])
 
-  // Poll DB for answers during question phase (fallback when Broadcast doesn't deliver)
+  // Poll DB for answers during question phase (fallback)
   useEffect(() => {
     if (phase !== 'question' || !currentQuestion) return
     const interval = setInterval(async () => {
@@ -177,8 +191,8 @@ export function HostGame({
   }, [phase, currentQuestion, session.id, players, supabase])
 
   function startGame() {
-    setPhase('question')
-    advanceToQuestion(0)
+    audio.stopLobbyMusic()
+    audio.play('gameStart')
 
     channelRef.current?.send({
       type: 'broadcast',
@@ -186,15 +200,35 @@ export function HostGame({
       payload: {},
     })
 
-    // Update session status
     supabase.from('sessions').update({
       status: 'active',
       started_at: new Date().toISOString(),
       current_question_index: 0,
     }).eq('id', session.id).then(() => {})
+
+    // Show Get Ready screen first
+    showGetReady(0)
   }
 
-  function advanceToQuestion(index: number) {
+  function showGetReady(index: number) {
+    setCurrentIndex(index)
+    setPhase('getReady')
+    setGetReadyCount(3)
+    audio.play('getReady')
+
+    let count = 3
+    const interval = setInterval(() => {
+      count--
+      if (count <= 0) {
+        clearInterval(interval)
+        startQuestion(index)
+      } else {
+        setGetReadyCount(count)
+      }
+    }, 1000)
+  }
+
+  function startQuestion(index: number) {
     const q = questions[index]
     if (!q) return
 
@@ -204,7 +238,6 @@ export function HostGame({
     setPhase('question')
     questionStartRef.current = Date.now()
 
-    // Broadcast question to players (without correct answers)
     channelRef.current?.send({
       type: 'broadcast',
       event: 'game:question',
@@ -227,7 +260,6 @@ export function HostGame({
     if (!currentQuestion) return
     setPhase('results')
 
-    // Calculate scores for each answer
     const newScores = new Map(scores)
     const deltas = new Map<string, number>()
 
@@ -249,7 +281,6 @@ export function HostGame({
 
       newScores.set(answer.participantId, playerScore)
 
-      // Save answer to DB
       supabase.from('answers').insert({
         session_id: session.id,
         participant_id: answer.participantId,
@@ -263,7 +294,6 @@ export function HostGame({
 
     setScores(newScores)
 
-    // Build leaderboard
     const lb = Array.from(newScores.entries())
       .map(([id, s]) => {
         const player = Array.from(players.values()).find((p) => p.id === id)
@@ -277,7 +307,6 @@ export function HostGame({
       .sort((a, b) => b.score - a.score)
     setLeaderboard(lb)
 
-    // Broadcast results
     channelRef.current?.send({
       type: 'broadcast',
       event: 'game:results',
@@ -288,7 +317,6 @@ export function HostGame({
     })
   }, [currentQuestion, answers, scores, players, session.id, supabase])
 
-  // Keep ref in sync for timer callback
   handleShowResultsRef.current = handleShowResults
 
   function getAnswerCounts() {
@@ -302,6 +330,7 @@ export function HostGame({
 
   function showLeaderboard() {
     setPhase('leaderboard')
+    audio.play('leaderboardReveal')
     channelRef.current?.send({
       type: 'broadcast',
       event: 'game:leaderboard',
@@ -314,22 +343,21 @@ export function HostGame({
     if (nextIndex >= questions.length) {
       showPodium()
     } else {
-      advanceToQuestion(nextIndex)
+      showGetReady(nextIndex)
     }
   }
 
   function showPodium() {
     setPhase('podium')
+    audio.play('podiumCelebration')
 
-    // Update participants with final scores
     for (const [id, s] of scores) {
       supabase.from('participants').update({
         total_score: s.score,
-        total_correct: s.streak, // simplified
+        total_correct: s.streak,
       }).eq('id', id).then(() => {})
     }
 
-    // Update final ranks
     leaderboard.forEach((entry, i) => {
       supabase.from('participants').update({ rank: i + 1 }).eq('id', entry.id).then(() => {})
     })
@@ -339,7 +367,6 @@ export function HostGame({
       ended_at: new Date().toISOString(),
     }).eq('id', session.id).then(() => {})
 
-    // Increment play count
     supabase.rpc('increment_play_count', { quiz_id_input: session.quiz_id }).then(() => {})
 
     channelRef.current?.send({
@@ -359,6 +386,15 @@ export function HostGame({
       onStart={startGame}
       muted={muted}
       onToggleMute={() => setMuted(!muted)}
+      audio={audio}
+    />
+  )
+
+  if (phase === 'getReady') return (
+    <GetReadyScreen
+      questionIndex={currentIndex}
+      totalQuestions={questions.length}
+      count={getReadyCount}
     />
   )
 
@@ -396,6 +432,61 @@ export function HostGame({
   return null
 }
 
+// ── GET READY ──────────────────────────────────
+
+function GetReadyScreen({
+  questionIndex,
+  totalQuestions,
+  count,
+}: {
+  questionIndex: number
+  totalQuestions: number
+  count: number
+}) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="text-center animate-getready-enter">
+        <p className="text-white/60 text-lg mb-4 font-bold">
+          Question {questionIndex + 1} of {totalQuestions}
+        </p>
+        <div className="relative">
+          <div className="w-32 h-32 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-6 animate-getready-pulse">
+            <span className="text-white text-6xl font-bold animate-getready-number" key={count}>
+              {count}
+            </span>
+          </div>
+        </div>
+        <h2 className="text-white text-3xl font-bold">Get Ready!</h2>
+      </div>
+
+      <style jsx>{`
+        @keyframes getready-enter {
+          0% { transform: scale(0.8); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-getready-enter {
+          animation: getready-enter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        @keyframes getready-pulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,0.3); }
+          50% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(255,255,255,0); }
+        }
+        .animate-getready-pulse {
+          animation: getready-pulse 1s ease-in-out infinite;
+        }
+        @keyframes getready-number {
+          0% { transform: scale(1.5); opacity: 0; }
+          30% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-getready-number {
+          animation: getready-number 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+      `}</style>
+    </div>
+  )
+}
+
 // ── LOBBY ──────────────────────────────────
 
 function LobbyScreen({
@@ -405,6 +496,7 @@ function LobbyScreen({
   onStart,
   muted,
   onToggleMute,
+  audio,
 }: {
   pin: string
   players: Map<string, { nickname: string; id?: string }>
@@ -412,7 +504,18 @@ function LobbyScreen({
   onStart: () => void
   muted: boolean
   onToggleMute: () => void
+  audio: ReturnType<typeof useGameAudio>
 }) {
+  // Start lobby music
+  useEffect(() => {
+    if (!muted) {
+      audio.play('lobbyMusic')
+    }
+    return () => {
+      audio.stopLobbyMusic()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #001b50 50%, #002a5c 100%)' }}>
       {/* Header */}
@@ -425,7 +528,7 @@ function LobbyScreen({
 
       {/* PIN display */}
       <div className="flex justify-center mt-8">
-        <div className="bg-white rounded-lg px-10 py-6 text-center shadow-2xl">
+        <div className="bg-white rounded-lg px-10 py-6 text-center shadow-2xl animate-lobby-pin">
           <p className="text-sm text-gray-text font-bold mb-1">Game PIN:</p>
           <p className="text-5xl font-bold text-dark-text tracking-widest">{pin}</p>
           <p className="text-xs text-gray-text mt-2">Join at <span className="font-bold">9hoot.vercel.app/join</span></p>
@@ -438,7 +541,7 @@ function LobbyScreen({
           {Array.from(players.values()).map((p, i) => (
             <span
               key={i}
-              className="bg-white/10 text-white text-sm font-bold px-3 py-1.5 rounded animate-bounce-in"
+              className="bg-white/10 text-white text-sm font-bold px-3 py-1.5 rounded animate-bounce-in backdrop-blur-sm"
               style={{ animationDelay: `${i * 100}ms` }}
             >
               {p.nickname}
@@ -446,22 +549,31 @@ function LobbyScreen({
           ))}
         </div>
         {players.size === 0 && (
-          <p className="text-white/40 text-sm mt-4">Waiting for players to join...</p>
+          <div className="text-center mt-8 animate-lobby-waiting">
+            <div className="text-4xl mb-3">👋</div>
+            <p className="text-white/40 text-sm">Waiting for players to join...</p>
+          </div>
         )}
       </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-3">
-          <span className="text-white text-sm font-bold">{players.size} player{players.size !== 1 ? 's' : ''}</span>
-          <button onClick={onToggleMute} className="text-white/60 hover:text-white text-sm">
+          <div className="bg-white/10 rounded-full px-4 py-2 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-correct-green animate-pulse" />
+            <span className="text-white text-sm font-bold">{players.size} player{players.size !== 1 ? 's' : ''}</span>
+          </div>
+          <button
+            onClick={onToggleMute}
+            className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all"
+          >
             {muted ? '🔇' : '🔊'}
           </button>
         </div>
         {players.size > 0 && (
           <button
             onClick={onStart}
-            className="h-12 px-10 bg-correct-green hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-lg transition-colors"
+            className="h-12 px-10 bg-correct-green hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-lg transition-all hover:scale-105 active:scale-95 animate-lobby-start"
           >
             Start
           </button>
@@ -476,6 +588,27 @@ function LobbyScreen({
         }
         .animate-bounce-in {
           animation: bounce-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        @keyframes lobby-pin {
+          0% { transform: translateY(-20px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        .animate-lobby-pin {
+          animation: lobby-pin 0.6s ease-out both;
+        }
+        @keyframes lobby-waiting {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0.8; }
+        }
+        .animate-lobby-waiting {
+          animation: lobby-waiting 3s ease-in-out infinite;
+        }
+        @keyframes lobby-start {
+          0% { transform: scale(0.8); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-lobby-start {
+          animation: lobby-start 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
         }
       `}</style>
     </div>
@@ -502,27 +635,28 @@ function QuestionScreen({
   const options = (question.options as { text: string }[]) || []
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col animate-question-enter" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3">
-        <span className="text-white/60 text-sm">{index + 1} of {total}</span>
-        <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
-          <span className="text-white text-2xl font-bold">{timeLeft}</span>
+        <span className="text-white/60 text-sm font-bold">{index + 1} of {total}</span>
+        <CountdownTimer timeLeft={timeLeft} totalTime={question.time_limit} size={80} />
+        <div className="flex items-center gap-2">
+          <span className="text-white/60 text-sm font-bold">{answerCount}/{playerCount}</span>
+          <span className="text-white/40 text-xs">answers</span>
         </div>
-        <span className="text-white/60 text-sm">{answerCount}/{playerCount} answers</span>
       </div>
 
       {/* Question */}
       <div className="px-8 py-4">
-        <div className="bg-white/15 backdrop-blur rounded-lg px-8 py-4 text-center">
-          <h2 className="text-2xl font-bold text-white">{question.question_text || 'Untitled question'}</h2>
+        <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-5 text-center shadow-lg">
+          <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight">{question.question_text || 'Untitled question'}</h2>
         </div>
       </div>
 
       {/* Media */}
       {question.media_url && (
         <div className="flex justify-center px-8 mb-4">
-          <img src={question.media_url} alt="" className="max-h-48 rounded-lg" />
+          <img src={question.media_url} alt="" className="max-h-48 rounded-lg shadow-lg" />
         </div>
       )}
 
@@ -535,10 +669,13 @@ function QuestionScreen({
               return (
                 <div
                   key={i}
-                  className="rounded-lg flex items-center gap-3 px-6 min-h-[80px]"
-                  style={{ backgroundColor: shape.color }}
+                  className="rounded-lg flex items-center gap-3 px-6 min-h-[80px] shadow-lg animate-answer-slide"
+                  style={{
+                    backgroundColor: shape.color,
+                    animationDelay: `${i * 100}ms`,
+                  }}
                 >
-                  <span className="text-white text-2xl">{shape.symbol}</span>
+                  <span className="text-white text-2xl opacity-80">{shape.symbol}</span>
                   <span className="text-white font-bold text-lg">{opt.text || `Option ${i + 1}`}</span>
                 </div>
               )
@@ -546,6 +683,23 @@ function QuestionScreen({
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes question-enter {
+          0% { opacity: 0; transform: translateX(30px); }
+          100% { opacity: 1; transform: translateX(0); }
+        }
+        .animate-question-enter {
+          animation: question-enter 0.5s ease-out both;
+        }
+        @keyframes answer-slide {
+          0% { opacity: 0; transform: translateY(20px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-answer-slide {
+          animation: answer-slide 0.4s ease-out both;
+        }
+      `}</style>
     </div>
   )
 }
@@ -561,10 +715,15 @@ function ResultsScreen({
   answers: PlayerAnswer[]
   onNext: () => void
 }) {
+  const [barsVisible, setBarsVisible] = useState(false)
   const options = (question.options as { text: string }[]) || []
   const correctAnswers = (question.correct_answers as number[]) || []
 
-  // Count answers per option for MCQ/TF/Poll
+  useEffect(() => {
+    const t = setTimeout(() => setBarsVisible(true), 100)
+    return () => clearTimeout(t)
+  }, [])
+
   const optionCounts = options.map((_, i) => {
     return answers.filter((a) => {
       const selected = (a.answerData.selectedIndices as number[]) || (a.answerData.selected !== undefined ? [a.answerData.selected ? 0 : 1] : [])
@@ -578,7 +737,7 @@ function ResultsScreen({
     <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
       {/* Question bar */}
       <div className="px-8 py-4 mt-4">
-        <div className="bg-white/15 backdrop-blur rounded-lg px-8 py-3 text-center">
+        <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
           <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
         </div>
       </div>
@@ -587,26 +746,43 @@ function ResultsScreen({
       <div className="flex-1 flex items-end justify-center gap-6 px-12 pb-4">
         {options.map((_, i) => {
           const shape = ANSWER_SHAPES[i]
-          const height = optionCounts[i] > 0 ? (optionCounts[i] / maxCount) * 200 : 4
+          const targetHeight = optionCounts[i] > 0 ? (optionCounts[i] / maxCount) * 200 : 4
+          const isCorrect = correctAnswers.includes(i)
           return (
             <div key={i} className="flex flex-col items-center gap-2">
+              {/* Count badge */}
+              <div className={`text-white font-bold text-lg transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>
+                {optionCounts[i]}
+              </div>
+              {/* Bar */}
               <div
-                className="w-24 rounded-t-lg transition-all duration-700 ease-out"
+                className="w-24 rounded-t-lg transition-all ease-out relative overflow-hidden"
                 style={{
                   backgroundColor: shape.color,
-                  height: `${height}px`,
+                  height: barsVisible ? `${targetHeight}px` : '4px',
+                  transitionDuration: '700ms',
+                  transitionDelay: `${i * 100}ms`,
+                  opacity: isCorrect ? 1 : 0.6,
                 }}
-              />
-              <div className="flex items-center gap-1 text-white text-sm font-bold">
-                <span>{shape.symbol}</span>
-                <span>{optionCounts[i]}</span>
+              >
+                {/* Shimmer effect on correct */}
+                {isCorrect && barsVisible && (
+                  <div className="absolute inset-0 animate-results-shimmer" />
+                )}
+              </div>
+              {/* Shape + correct indicator */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-white text-lg">{shape.symbol}</span>
+                {isCorrect && (
+                  <span className="text-correct-green text-lg animate-results-check">✓</span>
+                )}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Answer blocks with correct/incorrect indicators */}
+      {/* Answer blocks */}
       <div className={`grid gap-3 px-8 pb-6 ${options.length <= 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
         {options.map((opt, i) => {
           const shape = ANSWER_SHAPES[i]
@@ -614,15 +790,16 @@ function ResultsScreen({
           return (
             <div
               key={i}
-              className="rounded-lg flex items-center gap-3 px-6 py-4 transition-opacity"
+              className="rounded-lg flex items-center gap-3 px-6 py-4 transition-all duration-500 shadow-lg"
               style={{
                 backgroundColor: shape.color,
-                opacity: isCorrect ? 1 : 0.5,
+                opacity: isCorrect ? 1 : 0.4,
+                transform: isCorrect ? 'scale(1)' : 'scale(0.97)',
               }}
             >
-              <span className="text-white text-xl">{shape.symbol}</span>
+              <span className="text-white text-xl opacity-80">{shape.symbol}</span>
               <span className="text-white font-bold flex-1">{opt.text}</span>
-              <span className="text-white text-xl">
+              <span className={`text-xl transition-all duration-300 ${isCorrect ? 'text-white animate-results-check' : 'text-white/50'}`}>
                 {isCorrect ? '✓' : '✕'}
               </span>
             </div>
@@ -634,11 +811,31 @@ function ResultsScreen({
       <div className="flex justify-end px-8 pb-6">
         <button
           onClick={onNext}
-          className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-colors"
+          className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
         >
           Next →
         </button>
       </div>
+
+      <style jsx>{`
+        @keyframes results-shimmer {
+          0% { background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%); background-position: -200% 0; }
+          100% { background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%); background-position: 200% 0; }
+        }
+        .animate-results-shimmer {
+          animation: results-shimmer 1.5s ease-in-out;
+          background-size: 200% 100%;
+        }
+        @keyframes results-check {
+          0% { transform: scale(0); opacity: 0; }
+          50% { transform: scale(1.3); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-results-check {
+          animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          animation-delay: 0.6s;
+        }
+      `}</style>
     </div>
   )
 }
@@ -656,33 +853,71 @@ function LeaderboardScreen({
 }) {
   return (
     <div className="min-h-screen flex flex-col items-center" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #1a0a3e 100%)' }}>
-      <h2 className="text-3xl font-bold text-white mt-10 mb-8">Leaderboard</h2>
+      <h2 className="text-3xl font-bold text-white mt-10 mb-8 animate-lb-title">Leaderboard</h2>
 
       <div className="w-full max-w-xl px-8 space-y-3">
-        {leaderboard.map((entry, i) => (
-          <div
-            key={entry.id}
-            className="flex items-center gap-4 bg-white/10 rounded-lg px-6 py-4 transition-all duration-800"
-            style={{ animationDelay: `${i * 150}ms` }}
-          >
-            <span className="text-2xl font-bold text-white w-8">{i + 1}</span>
-            <span className="flex-1 text-white font-bold text-lg">{entry.nickname}</span>
-            {entry.delta > 0 && (
-              <span className="text-correct-green text-sm font-bold">+{entry.delta}</span>
-            )}
-            <span className="text-white font-bold text-xl">{entry.score}</span>
-          </div>
-        ))}
+        {leaderboard.map((entry, i) => {
+          const isTop3 = i < 3
+          const medals = ['🥇', '🥈', '🥉']
+          return (
+            <div
+              key={entry.id}
+              className="flex items-center gap-4 rounded-xl px-6 py-4 animate-lb-row"
+              style={{
+                animationDelay: `${i * 150 + 200}ms`,
+                background: isTop3
+                  ? `linear-gradient(90deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)`
+                  : 'rgba(255,255,255,0.08)',
+                borderLeft: isTop3 ? `4px solid ${['#FFD700', '#C0C0C0', '#CD7F32'][i]}` : '4px solid transparent',
+              }}
+            >
+              <span className="text-2xl w-10 text-center">
+                {isTop3 ? medals[i] : <span className="text-white/50 font-bold">{i + 1}</span>}
+              </span>
+              <span className="flex-1 text-white font-bold text-lg">{entry.nickname}</span>
+              {entry.delta > 0 && (
+                <span className="text-correct-green text-sm font-bold animate-lb-delta" style={{ animationDelay: `${i * 150 + 600}ms` }}>
+                  +{entry.delta}
+                </span>
+              )}
+              <span className="text-white font-bold text-xl tabular-nums">{entry.score.toLocaleString()}</span>
+            </div>
+          )
+        })}
       </div>
 
       <div className="mt-auto pb-8">
         <button
           onClick={onNext}
-          className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-colors"
+          className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
         >
           {isLast ? 'Show Podium' : 'Next Question →'}
         </button>
       </div>
+
+      <style jsx>{`
+        @keyframes lb-title {
+          0% { opacity: 0; transform: translateY(-20px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-lb-title {
+          animation: lb-title 0.5s ease-out both;
+        }
+        @keyframes lb-row {
+          0% { opacity: 0; transform: translateX(-40px); }
+          100% { opacity: 1; transform: translateX(0); }
+        }
+        .animate-lb-row {
+          animation: lb-row 0.6s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+        }
+        @keyframes lb-delta {
+          0% { opacity: 0; transform: translateY(10px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-lb-delta {
+          animation: lb-delta 0.4s ease-out both;
+        }
+      `}</style>
     </div>
   )
 }
@@ -696,37 +931,114 @@ function PodiumScreen({
   podium: { id: string; nickname: string; score: number }[]
   quizTitle: string
 }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [pillarsVisible, setPillarsVisible] = useState(false)
+
+  // Staggered reveal
+  useEffect(() => {
+    const t = setTimeout(() => setPillarsVisible(true), 500)
+    return () => clearTimeout(t)
+  }, [])
+
+  // Canvas confetti
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const particles: {
+      x: number; y: number; vx: number; vy: number;
+      color: string; size: number; rotation: number; rotationSpeed: number;
+      shape: 'rect' | 'circle'
+    }[] = []
+
+    const colors = ['#FFD700', '#E21B3C', '#1368CE', '#26890C', '#D89E00', '#FF69B4', '#00D4FF', '#FF6B35']
+
+    // Create particles
+    for (let i = 0; i < 80; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height * 0.5,
+        vx: (Math.random() - 0.5) * 4,
+        vy: Math.random() * 3 + 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: Math.random() * 8 + 3,
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 10,
+        shape: Math.random() > 0.5 ? 'rect' : 'circle',
+      })
+    }
+
+    let animFrame: number
+    function animate() {
+      if (!ctx || !canvas) return
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      for (const p of particles) {
+        ctx.save()
+        ctx.translate(p.x, p.y)
+        ctx.rotate((p.rotation * Math.PI) / 180)
+        ctx.fillStyle = p.color
+        ctx.globalAlpha = Math.max(0, 1 - p.y / canvas.height)
+
+        if (p.shape === 'rect') {
+          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6)
+        } else {
+          ctx.beginPath()
+          ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2)
+          ctx.fill()
+        }
+
+        ctx.restore()
+
+        // Physics
+        p.x += p.vx
+        p.y += p.vy
+        p.vy += 0.05 // gravity
+        p.vx *= 0.99 // air resistance
+        p.rotation += p.rotationSpeed
+
+        // Reset when off screen
+        if (p.y > canvas.height + 20) {
+          p.y = -20
+          p.x = Math.random() * canvas.width
+          p.vy = Math.random() * 3 + 1
+        }
+      }
+
+      animFrame = requestAnimationFrame(animate)
+    }
+
+    animate()
+
+    return () => cancelAnimationFrame(animFrame)
+  }, [])
+
   const podiumConfig = [
-    { color: '#FFD700', height: 200, label: '1st' },
-    { color: '#C0C0C0', height: 160, label: '2nd' },
-    { color: '#CD7F32', height: 130, label: '3rd' },
+    { color: '#FFD700', height: 200, label: '1st', delay: '0.8s' },
+    { color: '#C0C0C0', height: 160, label: '2nd', delay: '0.5s' },
+    { color: '#CD7F32', height: 130, label: '3rd', delay: '1.1s' },
   ]
 
-  // Visual order: 2nd, 1st, 3rd (only if 3 players)
-  // With fewer players, just show them in order
+  // Visual order: 2nd, 1st, 3rd
   const displayOrder = podium.length >= 3
-    ? [{ entry: podium[1], config: podiumConfig[1] }, { entry: podium[0], config: podiumConfig[0] }, { entry: podium[2], config: podiumConfig[2] }]
+    ? [
+        { entry: podium[1], config: podiumConfig[1] },
+        { entry: podium[0], config: podiumConfig[0] },
+        { entry: podium[2], config: podiumConfig[2] },
+      ]
     : podium.map((entry, i) => ({ entry, config: podiumConfig[i] }))
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
-      {/* Confetti */}
-      <div className="absolute inset-0 pointer-events-none">
-        {Array.from({ length: 40 }).map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-2 h-2 rounded-full animate-confetti"
-            style={{
-              backgroundColor: ['#FFD700', '#E21B3C', '#1368CE', '#26890C', '#D89E00', '#FF69B4'][i % 6],
-              left: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-              animationDuration: `${2 + Math.random() * 2}s`,
-            }}
-          />
-        ))}
-      </div>
+      {/* Canvas confetti */}
+      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
 
-      <h1 className="text-4xl font-bold text-white mb-2 z-10">
+      <h1 className="text-4xl font-bold text-white mb-2 z-10 animate-podium-title">
         9Hoot<span className="text-yellow-accent">!</span>
       </h1>
       <p className="text-white/60 text-sm mb-12 z-10">{quizTitle}</p>
@@ -734,17 +1046,23 @@ function PodiumScreen({
       {/* Podium */}
       <div className="flex items-end gap-4 z-10">
         {displayOrder.map(({ entry, config }) => (
-          <div key={entry.id} className="flex flex-col items-center">
-            <span className="text-white font-bold text-lg mb-2">{entry.nickname}</span>
-            <span className="text-white/80 text-sm mb-2">{entry.score} pts</span>
+          <div key={entry.id} className="flex flex-col items-center animate-podium-pillar" style={{ animationDelay: config.delay }}>
+            <span className="text-white font-bold text-lg mb-1 animate-podium-name" style={{ animationDelay: `calc(${config.delay} + 0.3s)` }}>
+              {entry.nickname}
+            </span>
+            <span className="text-white/70 text-sm mb-3 animate-podium-name" style={{ animationDelay: `calc(${config.delay} + 0.4s)` }}>
+              {entry.score.toLocaleString()} pts
+            </span>
             <div
-              className="w-32 rounded-t-lg flex items-start justify-center pt-4 transition-all duration-1000"
+              className="w-32 rounded-t-xl flex items-start justify-center pt-4 shadow-2xl"
               style={{
                 backgroundColor: config.color,
-                height: `${config.height}px`,
+                height: pillarsVisible ? `${config.height}px` : '0px',
+                transition: 'height 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                transitionDelay: config.delay,
               }}
             >
-              <span className="text-2xl font-bold text-white/90">{config.label}</span>
+              <span className="text-2xl font-bold text-white/90 drop-shadow">{config.label}</span>
             </div>
           </div>
         ))}
@@ -752,18 +1070,32 @@ function PodiumScreen({
 
       <a
         href="/library"
-        className="mt-12 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg flex items-center hover:bg-gray-100 transition-colors z-10"
+        className="mt-12 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg flex items-center hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg z-10"
       >
         Back to Library
       </a>
 
       <style jsx>{`
-        @keyframes confetti {
-          0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        @keyframes podium-title {
+          0% { opacity: 0; transform: scale(0.5); }
+          100% { opacity: 1; transform: scale(1); }
         }
-        .animate-confetti {
-          animation: confetti 3s ease-in-out infinite;
+        .animate-podium-title {
+          animation: podium-title 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        @keyframes podium-pillar {
+          0% { opacity: 0; transform: translateY(40px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-podium-pillar {
+          animation: podium-pillar 0.5s ease-out both;
+        }
+        @keyframes podium-name {
+          0% { opacity: 0; transform: translateY(10px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-podium-name {
+          animation: podium-name 0.4s ease-out both;
         }
       `}</style>
     </div>
