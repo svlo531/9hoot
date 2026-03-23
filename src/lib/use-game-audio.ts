@@ -4,7 +4,7 @@ import { useRef, useCallback, useEffect } from 'react'
 
 /**
  * Web Audio API sound engine for 9Hoot!
- * All sounds are procedurally generated — no audio files needed.
+ * SFX are procedurally generated. BGM uses /audio/lobby-music.mp3.
  */
 
 type SoundType =
@@ -23,7 +23,7 @@ type SoundType =
 export function useGameAudio() {
   const ctxRef = useRef<AudioContext | null>(null)
   const mutedRef = useRef(false)
-  const lobbyIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const bgmRef = useRef<HTMLAudioElement | null>(null)
   const activeNodesRef = useRef<Set<AudioNode>>(new Set())
 
   function getCtx() {
@@ -50,14 +50,13 @@ export function useGameAudio() {
   }, [])
 
   const play = useCallback((sound: SoundType) => {
-    if (mutedRef.current) return
+    if (mutedRef.current && sound !== 'lobbyMusic') return
 
     const ctx = getCtx()
     const now = ctx.currentTime
 
     switch (sound) {
       case 'countdownTick': {
-        // Short percussive tick
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'sine'
@@ -74,7 +73,6 @@ export function useGameAudio() {
       }
 
       case 'countdownUrgent': {
-        // Faster, higher tick for last 5 seconds
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'square'
@@ -91,8 +89,7 @@ export function useGameAudio() {
       }
 
       case 'gameStart': {
-        // Rising fanfare: three quick ascending tones
-        const notes = [523.25, 659.25, 783.99] // C5, E5, G5
+        const notes = [523.25, 659.25, 783.99]
         notes.forEach((freq, i) => {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -111,7 +108,6 @@ export function useGameAudio() {
       }
 
       case 'timesUp': {
-        // Descending buzzer
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'sawtooth'
@@ -129,7 +125,6 @@ export function useGameAudio() {
       }
 
       case 'answerSubmit': {
-        // Quick pop/click
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'sine'
@@ -146,8 +141,7 @@ export function useGameAudio() {
       }
 
       case 'correct': {
-        // Happy ascending ding-ding
-        const notes = [523.25, 783.99, 1046.5] // C5, G5, C6
+        const notes = [523.25, 783.99, 1046.5]
         notes.forEach((freq, i) => {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -166,7 +160,6 @@ export function useGameAudio() {
       }
 
       case 'incorrect': {
-        // Sad descending buzz
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'sawtooth'
@@ -183,7 +176,6 @@ export function useGameAudio() {
       }
 
       case 'getReady': {
-        // Building suspense — low drum-like pulse
         for (let i = 0; i < 3; i++) {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -202,7 +194,6 @@ export function useGameAudio() {
       }
 
       case 'leaderboardReveal': {
-        // Dramatic reveal — ascending sweep
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.type = 'triangle'
@@ -220,8 +211,7 @@ export function useGameAudio() {
       }
 
       case 'podiumCelebration': {
-        // Victory fanfare — ascending chord with shimmer
-        const chord = [523.25, 659.25, 783.99, 1046.5] // C major spread
+        const chord = [523.25, 659.25, 783.99, 1046.5]
         chord.forEach((freq, i) => {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -241,7 +231,6 @@ export function useGameAudio() {
       }
 
       case 'lobbyMusic': {
-        // Start lobby music loop — chill repeating pattern
         startLobbyMusic()
         break
       }
@@ -249,61 +238,36 @@ export function useGameAudio() {
   }, [])
 
   function startLobbyMusic() {
-    stopLobbyMusic() // Clear any existing
-    const ctx = getCtx()
+    // Don't restart if already playing
+    if (bgmRef.current && !bgmRef.current.paused) return
 
-    // Simple repeating melodic pattern
-    const pattern = [
-      { freq: 329.63, dur: 0.3 }, // E4
-      { freq: 392.00, dur: 0.3 }, // G4
-      { freq: 440.00, dur: 0.3 }, // A4
-      { freq: 392.00, dur: 0.3 }, // G4
-      { freq: 329.63, dur: 0.3 }, // E4
-      { freq: 293.66, dur: 0.3 }, // D4
-      { freq: 329.63, dur: 0.6 }, // E4 (hold)
-    ]
+    const audio = new Audio('/audio/lobby-music.mp3')
+    audio.loop = true
+    audio.volume = 0.5
+    audio.muted = mutedRef.current
 
-    let noteIndex = 0
-    const playNote = () => {
-      if (mutedRef.current) return
-      const ctx = getCtx()
-      const { freq, dur } = pattern[noteIndex % pattern.length]
-      const now = ctx.currentTime
+    audio.play().catch(() => {
+      // Browser may block autoplay — will retry on next user interaction
+    })
 
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(freq, now)
-      gain.gain.setValueAtTime(0, now)
-      gain.gain.linearRampToValueAtTime(0.06, now + 0.03)
-      gain.gain.linearRampToValueAtTime(0.05, now + dur * 0.7)
-      gain.gain.exponentialRampToValueAtTime(0.001, now + dur)
-      osc.connect(gain).connect(ctx.destination)
-      osc.start(now)
-      osc.stop(now + dur + 0.05)
-      activeNodesRef.current.add(gain)
-      osc.onended = () => { gain.disconnect(); activeNodesRef.current.delete(gain) }
-
-      noteIndex++
-    }
-
-    playNote()
-    lobbyIntervalRef.current = setInterval(playNote, 350)
+    bgmRef.current = audio
   }
 
   const stopLobbyMusic = useCallback(() => {
-    if (lobbyIntervalRef.current) {
-      clearInterval(lobbyIntervalRef.current)
-      lobbyIntervalRef.current = null
+    if (bgmRef.current) {
+      bgmRef.current.pause()
+      bgmRef.current.currentTime = 0
+      bgmRef.current = null
     }
   }, [])
 
   const setMuted = useCallback((muted: boolean) => {
     mutedRef.current = muted
-    if (muted) {
-      stopLobbyMusic()
+    // Sync mute state to BGM element
+    if (bgmRef.current) {
+      bgmRef.current.muted = muted
     }
-  }, [stopLobbyMusic])
+  }, [])
 
   return { play, stopLobbyMusic, setMuted }
 }

@@ -191,7 +191,7 @@ export function HostGame({
   }, [phase, currentQuestion, session.id, players, supabase])
 
   function startGame() {
-    audio.stopLobbyMusic()
+    // BGM keeps playing through the entire game — only stops at podium
     audio.play('gameStart')
 
     channelRef.current?.send({
@@ -349,6 +349,7 @@ export function HostGame({
 
   function showPodium() {
     setPhase('podium')
+    audio.stopLobbyMusic() // Stop BGM at game end
     audio.play('podiumCelebration')
 
     for (const [id, s] of scores) {
@@ -506,13 +507,10 @@ function LobbyScreen({
   onToggleMute: () => void
   audio: ReturnType<typeof useGameAudio>
 }) {
-  // Start lobby music
+  // Start lobby music — persists through the entire game, stopped at podium
   useEffect(() => {
     if (!muted) {
       audio.play('lobbyMusic')
-    }
-    return () => {
-      audio.stopLobbyMusic()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
