@@ -48,51 +48,32 @@ export function PlayerGame({ pin }: { pin: string }) {
   const supabase = createClient()
   const audio = useGameAudio()
 
-  // Poll session state from DB
+  // Poll session state from DB — stable deps only to prevent interval churn
+  const sessionIdRef = useRef(sessionId)
+  const participantIdRef = useRef(participantId)
+  sessionIdRef.current = sessionId
+  participantIdRef.current = participantId
+
   useEffect(() => {
     if (!sessionId || !participantId) return
     if (phase === 'podium') return
 
     const interval = setInterval(async () => {
+      const sid = sessionIdRef.current
+      const pid = participantIdRef.current
+      if (!sid || !pid) return
+
       const { data: session } = await supabase
         .from('sessions')
         .select('status, current_question_index')
-        .eq('id', sessionId)
+        .eq('id', sid)
         .single()
 
       if (!session) return
 
       if (session.status === 'completed') {
-        // Fetch my own result
-        const { data: myParticipant } = await supabase
-          .from('participants')
-          .select('total_score, rank')
-          .eq('id', participantId)
-          .single()
-
-        if (myParticipant) {
-          setTotalScore(myParticipant.total_score || totalScore)
-          setCurrentRank(myParticipant.rank)
-        }
-
-        // Fetch top 3 for podium display
-        const { data: topPlayers } = await supabase
-          .from('participants')
-          .select('nickname, total_score, rank')
-          .eq('session_id', sessionId)
-          .order('total_score', { ascending: false })
-          .limit(3)
-
-        if (topPlayers) {
-          setPodiumData(topPlayers.map((p, i) => ({
-            nickname: p.nickname,
-            score: p.total_score || 0,
-            rank: p.rank || i + 1,
-          })))
-          setPlayerCount(topPlayers.length)
-        }
-
-        setPhase('podium')
+        clearInterval(interval)
+        await fetchPodiumAndTransition(sid, pid)
         return
       }
 
@@ -108,7 +89,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     }, 1500)
 
     return () => clearInterval(interval)
-  }, [sessionId, participantId, phase, selectedAnswer, streak, supabase, totalScore])
+  }, [sessionId, participantId, phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load questions once after joining
   useEffect(() => {
@@ -130,7 +111,7 @@ export function PlayerGame({ pin }: { pin: string }) {
         .order('sort_order', { ascending: true })
 
       if (questions) {
-        questionsRef.current = questions.map((q, i) => ({
+        questionsRef.current = questions.map((q: Record<string, unknown>, i: number) => ({
           id: q.id,
           index: i,
           type: q.type,
@@ -205,12 +186,51 @@ export function PlayerGame({ pin }: { pin: string }) {
 
         if (participants) {
           setPlayerCount(participants.length)
-          const myIndex = participants.findIndex((p) => p.id === participantId)
+          const myIndex = participants.findIndex((p: Record<string, unknown>) => p.id === participantId)
           setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
         }
       }
       setPhase('ranking')
     }, 3000)
+  }
+
+  // Fetch podium data from DB and transition to podium phase
+  async function fetchPodiumAndTransition(sid: string, pid: string) {
+    const { data: myParticipant } = await supabase
+      .from('participants')
+      .select('total_score, rank')
+      .eq('id', pid)
+      .single()
+
+    if (myParticipant) {
+      setTotalScore(myParticipant.total_score || 0)
+      setCurrentRank(myParticipant.rank)
+    }
+
+    const { data: topPlayers } = await supabase
+      .from('participants')
+      .select('nickname, total_score, rank')
+      .eq('session_id', sid)
+      .order('total_score', { ascending: false })
+      .limit(3)
+
+    if (topPlayers) {
+      setPodiumData(topPlayers.map((p: Record<string, unknown>, i: number) => ({
+        nickname: p.nickname,
+        score: p.total_score || 0,
+        rank: p.rank || i + 1,
+      })))
+    }
+
+    // Fetch total player count
+    const { count } = await supabase
+      .from('participants')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sid)
+
+    if (count) setPlayerCount(count)
+
+    setPhase('podium')
   }
 
   // Set up Broadcast channel
@@ -226,6 +246,14 @@ export function PlayerGame({ pin }: { pin: string }) {
         // Host says time's up — lock answers if player hasn't answered yet
         if (!answerLockedRef.current) {
           handleTimeUp()
+        }
+      })
+      .on('broadcast', { event: 'game:podium' }, () => {
+        // Host shows podium — transition immediately
+        const sid = sessionIdRef.current
+        const pid = participantIdRef.current
+        if (sid && pid) {
+          fetchPodiumAndTransition(sid, pid)
         }
       })
       .subscribe()
@@ -335,7 +363,7 @@ export function PlayerGame({ pin }: { pin: string }) {
 
         if (participants) {
           setPlayerCount(participants.length)
-          const myIndex = participants.findIndex((p) => p.id === participantId)
+          const myIndex = participants.findIndex((p: Record<string, unknown>) => p.id === participantId)
           setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
         }
       }

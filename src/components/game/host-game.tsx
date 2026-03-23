@@ -57,27 +57,27 @@ export function HostGame({
     })
 
     channel
-      .on('broadcast', { event: 'player:answer' }, (payload) => {
-        const { participantId, nickname, answerData, timeTakenMs } = payload.payload
+      .on('broadcast', { event: 'player:answer' }, (payload: { payload: Record<string, unknown> }) => {
+        const { participantId, nickname, answerData, timeTakenMs } = payload.payload as { participantId: string; nickname: string; answerData: Record<string, unknown>; timeTakenMs: number }
         setAnswers((prev) => {
           if (prev.some((a) => a.participantId === participantId)) return prev
           return [...prev, { participantId, nickname, answerData, timeTakenMs }]
         })
       })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
+      .on('presence', { event: 'join' }, ({ newPresences }: { newPresences: Record<string, unknown>[] }) => {
         setPlayers((prev) => {
           const next = new Map(prev)
           for (const p of newPresences) {
-            next.set(p.presence_ref, { nickname: p.nickname, id: p.participantId })
+            next.set(p.presence_ref as string, { nickname: p.nickname as string, id: p.participantId as string })
           }
           return next
         })
       })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      .on('presence', { event: 'leave' }, ({ leftPresences }: { leftPresences: Record<string, unknown>[] }) => {
         setPlayers((prev) => {
           const next = new Map(prev)
           for (const p of leftPresences) {
-            next.delete(p.presence_ref)
+            next.delete(p.presence_ref as string)
           }
           return next
         })
