@@ -7,7 +7,7 @@ import { checkAnswer, calculateScore, getStreakMultiplier } from '@/lib/game-uti
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answerFill' | 'result' | 'ranking' | 'podium'
+type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answerFill' | 'result' | 'timeUp' | 'ranking' | 'podium'
 
 interface QuestionData {
   id: string
@@ -37,10 +37,13 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [currentRank, setCurrentRank] = useState<number | null>(null)
   const [playerCount, setPlayerCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [playerTimeLeft, setPlayerTimeLeft] = useState(0)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
   const lastQuestionIndexRef = useRef<number>(-1)
   const questionsRef = useRef<QuestionData[]>([])
+  const playerTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const answerLockedRef = useRef(false)
   const supabase = createClient()
   const audio = useGameAudio()
 
@@ -134,8 +137,60 @@ export function PlayerGame({ pin }: { pin: string }) {
     setIsCorrect(null)
     setPointsAwarded(0)
     setDisplayedPoints(0)
+    setPlayerTimeLeft(q.timeLimit)
+    answerLockedRef.current = false
     setPhase('question')
     questionStartRef.current = Date.now()
+  }
+
+  // Player-side countdown timer — auto-locks when time runs out
+  useEffect(() => {
+    if (phase !== 'question' || playerTimeLeft <= 0) return
+
+    playerTimerRef.current = setTimeout(() => {
+      if (playerTimeLeft <= 1) {
+        handleTimeUp()
+      } else {
+        setPlayerTimeLeft(playerTimeLeft - 1)
+      }
+    }, 1000)
+
+    return () => {
+      if (playerTimerRef.current) clearTimeout(playerTimerRef.current)
+    }
+  }, [phase, playerTimeLeft])
+
+  function handleTimeUp() {
+    if (answerLockedRef.current) return
+    answerLockedRef.current = true
+
+    // Clear timer
+    if (playerTimerRef.current) clearTimeout(playerTimerRef.current)
+
+    // Reset streak since they didn't answer
+    setStreak(0)
+    setPointsAwarded(0)
+    setIsCorrect(false)
+    audio.play('timesUp')
+    setPhase('timeUp')
+
+    // Transition to ranking after 3s
+    setTimeout(async () => {
+      if (sessionId && participantId) {
+        const { data: participants } = await supabase
+          .from('participants')
+          .select('id, total_score')
+          .eq('session_id', sessionId)
+          .order('total_score', { ascending: false })
+
+        if (participants) {
+          setPlayerCount(participants.length)
+          const myIndex = participants.findIndex((p) => p.id === participantId)
+          setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
+        }
+      }
+      setPhase('ranking')
+    }, 3000)
   }
 
   // Set up Broadcast channel
@@ -146,7 +201,15 @@ export function PlayerGame({ pin }: { pin: string }) {
       config: { broadcast: { self: false } },
     })
 
-    channel.subscribe()
+    channel
+      .on('broadcast', { event: 'game:answer_lock' }, () => {
+        // Host says time's up — lock answers if player hasn't answered yet
+        if (!answerLockedRef.current) {
+          handleTimeUp()
+        }
+      })
+      .subscribe()
+
     channel.track({ nickname, participantId })
 
     channelRef.current = channel
@@ -194,7 +257,11 @@ export function PlayerGame({ pin }: { pin: string }) {
   }
 
   function submitAnswer(answerData: Record<string, unknown>, answerIndex: number) {
-    if (!participantId || !question) return
+    if (!participantId || !question || answerLockedRef.current) return
+
+    // Lock answers — prevents timer from firing after submission
+    answerLockedRef.current = true
+    if (playerTimerRef.current) clearTimeout(playerTimerRef.current)
 
     audio.play('answerSubmit')
     setSelectedAnswer(answerData)
@@ -513,6 +580,52 @@ export function PlayerGame({ pin }: { pin: string }) {
       </div>
     )
   }
+
+  if (phase === 'timeUp') return (
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #5c1a1a 0%, #3d0a0a 100%)' }}>
+      <div className="w-24 h-24 rounded-full bg-answer-red/30 flex items-center justify-center mb-4 animate-timeup-icon">
+        <span className="text-white text-5xl">⏱</span>
+      </div>
+      <p className="text-white font-bold text-2xl animate-timeup-text">Time&apos;s Up!</p>
+      <p className="text-white/50 text-sm mt-3 animate-timeup-sub">You didn&apos;t answer in time</p>
+      <div className="mt-4 bg-black/30 rounded-full px-6 py-2.5 animate-timeup-score">
+        <span className="text-white/70 font-bold text-lg">+0</span>
+      </div>
+      <p className="text-white/40 text-sm mt-6">Total: {totalScore} pts</p>
+
+      <style jsx>{`
+        @keyframes timeup-icon {
+          0% { transform: scale(0) rotate(-20deg); }
+          50% { transform: scale(1.2) rotate(5deg); }
+          100% { transform: scale(1) rotate(0); }
+        }
+        .animate-timeup-icon {
+          animation: timeup-icon 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        @keyframes timeup-text {
+          0% { opacity: 0; transform: translateY(15px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-timeup-text {
+          animation: timeup-text 0.3s ease-out 0.2s both;
+        }
+        @keyframes timeup-sub {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .animate-timeup-sub {
+          animation: timeup-sub 0.3s ease-out 0.4s both;
+        }
+        @keyframes timeup-score {
+          0% { opacity: 0; transform: scale(0.5); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+        .animate-timeup-score {
+          animation: timeup-score 0.3s ease-out 0.5s both;
+        }
+      `}</style>
+    </div>
+  )
 
   if (phase === 'result') return (
     <div
