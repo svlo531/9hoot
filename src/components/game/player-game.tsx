@@ -655,10 +655,12 @@ export function PlayerGame({ pin }: { pin: string }) {
             <div className="flex items-end justify-center gap-3 mb-8">
               {displayOrder.map(({ entry, config }, i) => {
                 const isMe = entry.nickname === nickname
+                // Use local score for own entry to avoid stale DB reads
+                const displayScore = isMe ? Math.max(totalScore, entry.score) : entry.score
                 return (
                   <div key={i} className="flex flex-col items-center animate-podium-pillar" style={{ animationDelay: `${[0.5, 0.3, 0.7][i]}s` }}>
                     <span className={`text-sm font-bold mb-1 truncate max-w-[90px] ${isMe ? 'text-yellow-accent' : 'text-white'}`}>{entry.nickname}</span>
-                    <span className="text-white/60 text-xs mb-2 tabular-nums">{entry.score.toLocaleString()}</span>
+                    <span className="text-white/60 text-xs mb-2 tabular-nums">{displayScore.toLocaleString()}</span>
                     <div className="w-20 rounded-t-lg flex items-start justify-center pt-3 shadow-lg" style={{ backgroundColor: config.color, height: `${config.height}px` }}>
                       <span className="text-lg font-bold text-white/90">{config.label}</span>
                     </div>
