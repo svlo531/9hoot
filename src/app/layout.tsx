@@ -11,6 +11,10 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: '9Hoot!',
   description: 'Real-time interactive quiz & engagement platform',
+  icons: {
+    icon: '/logos/AI-Agency-Logo-favicon.png',
+    apple: '/logos/AI-Agency-Logo-notext.png',
+  },
 }
 
 export default function RootLayout({

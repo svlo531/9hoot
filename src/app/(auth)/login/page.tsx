@@ -34,6 +34,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
+          <img src="/logos/AI-Agency-Logo-notext.png" alt="9Hoot!" className="w-20 h-20 mx-auto mb-3" />
           <h1 className="text-5xl font-bold text-white tracking-tight">
             9Hoot<span className="text-yellow-accent">!</span>
           </h1>
