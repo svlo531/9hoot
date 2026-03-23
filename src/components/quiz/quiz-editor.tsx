@@ -34,6 +34,7 @@ export function QuizEditor({
   const [showTypeSelector, setShowTypeSelector] = useState(false)
   const [title, setTitle] = useState(quiz.title)
   const [saving, setSaving] = useState(false)
+  const [dragQIdx, setDragQIdx] = useState<number | null>(null)
   const supabase = createClient()
   const router = useRouter()
 
@@ -128,6 +129,22 @@ export function QuizEditor({
     await supabase.from('quizzes').update({ question_count: newQuestions.length, updated_at: new Date().toISOString() }).eq('id', quiz.id)
   }
 
+  async function reorderQuestions(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx) return
+    const reordered = [...questions]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    setQuestions(reordered)
+    // Update selected index to follow the moved item
+    if (selectedIndex === fromIdx) setSelectedIndex(toIdx)
+    else if (fromIdx < selectedIndex && toIdx >= selectedIndex) setSelectedIndex(selectedIndex - 1)
+    else if (fromIdx > selectedIndex && toIdx <= selectedIndex) setSelectedIndex(selectedIndex + 1)
+    // Persist sort_order to DB
+    await Promise.all(reordered.map((q, i) =>
+      supabase.from('questions').update({ sort_order: i }).eq('id', q.id)
+    ))
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-56px)] -m-6">
       {/* Top bar */}
@@ -156,8 +173,15 @@ export function QuizEditor({
             {questions.map((q, i) => (
               <button
                 key={q.id}
+                draggable
+                onDragStart={() => setDragQIdx(i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => { if (dragQIdx !== null) { reorderQuestions(dragQIdx, i); setDragQIdx(null) } }}
+                onDragEnd={() => setDragQIdx(null)}
                 onClick={() => setSelectedIndex(i)}
-                className={`w-full text-left p-2 rounded text-xs transition-colors ${
+                className={`w-full text-left p-2 rounded text-xs transition-colors cursor-grab active:cursor-grabbing ${
+                  dragQIdx === i ? 'opacity-40' : ''
+                } ${
                   selectedIndex === i
                     ? 'bg-purple-primary text-white'
                     : 'hover:bg-light-gray text-dark-text'

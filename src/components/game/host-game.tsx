@@ -1063,8 +1063,12 @@ function ResultsScreen({
   if (question.type === 'word_cloud') {
     const wordMap = new Map<string, number>()
     for (const a of answers) {
-      const word = ((a.answerData.text as string) || '').trim().toLowerCase()
-      if (word) wordMap.set(word, (wordMap.get(word) || 0) + 1)
+      const raw = ((a.answerData.text as string) || '').trim().toLowerCase()
+      // Split multi-word responses into individual words for the cloud
+      const responseWords = raw.split(/\s+/).filter(Boolean)
+      for (const w of responseWords) {
+        wordMap.set(w, (wordMap.get(w) || 0) + 1)
+      }
     }
     const words = Array.from(wordMap.entries())
       .sort((a, b) => b[1] - a[1])
@@ -1087,13 +1091,15 @@ function ResultsScreen({
             <div className="flex flex-wrap items-center justify-center gap-3 max-w-3xl">
               {words.map(([word, count], i) => {
                 const scale = 0.7 + (count / maxFreq) * 1.8
+                // Hash-based color so each word gets a distinct, stable color
+                const hash = word.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
                 return (
                   <span
                     key={word}
                     className="font-bold transition-all animate-cloud-word"
                     style={{
                       fontSize: `${scale}rem`,
-                      color: cloudColors[i % cloudColors.length],
+                      color: cloudColors[(hash + i) % cloudColors.length],
                       animationDelay: `${i * 60}ms`,
                     }}
                   >

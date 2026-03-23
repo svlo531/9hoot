@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { QuizList } from '@/components/dashboard/quiz-list'
 
+export const dynamic = 'force-dynamic'
+
 export default async function LibraryPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

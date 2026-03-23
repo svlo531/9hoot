@@ -76,7 +76,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     }
   }
 
-  async function fetchPodiumData(sid: string, pid: string) {
+  async function fetchPodiumData(sid: string, pid: string, retryCount = 0) {
     try {
       const [myResult, topResult, countResult] = await Promise.all([
         supabase.from('participants').select('total_score, rank').eq('id', pid).single(),
@@ -84,10 +84,23 @@ export function PlayerGame({ pin }: { pin: string }) {
         supabase.from('participants').select('id', { count: 'exact', head: true }).eq('session_id', sid),
       ])
 
-      if (myResult.data) {
-        setTotalScore(myResult.data.total_score || 0)
-        setCurrentRank(myResult.data.rank)
+      const dbScore = (myResult.data?.total_score as number) || 0
+      const dbRank = myResult.data?.rank as number | null
+
+      // Race condition guard: if DB score is 0 but player accumulated
+      // points locally, the host may not have finished writing scores yet.
+      // Retry once after 1.5s to let the write complete.
+      if (dbScore === 0 && retryCount < 2) {
+        // Keep local score for now — don't overwrite with stale DB value
+        if (dbRank) setCurrentRank(dbRank)
+        if (countResult.count) setPlayerCount(countResult.count)
+        setTimeout(() => fetchPodiumData(sid, pid, retryCount + 1), 1500)
+        return
       }
+
+      // Use the higher of local vs DB score to protect against race conditions
+      setTotalScore((prev) => Math.max(prev, dbScore))
+      if (dbRank) setCurrentRank(dbRank)
 
       if (topResult.data) {
         setPodiumData(topResult.data.map((p: Record<string, unknown>, i: number) => ({
@@ -359,6 +372,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     setPhase('answerFill')
 
     const timeTakenMs = Date.now() - questionStartRef.current
+    const isNonScoredType = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(question.type)
     const correct = checkAnswer(question.type, answerData, question.correctAnswers)
     setIsCorrect(correct)
 
@@ -370,13 +384,14 @@ export function PlayerGame({ pin }: { pin: string }) {
       setTotalScore((prev) => prev + multiplied)
       setStreak((s) => s + 1)
       earnedPts = multiplied
-    } else {
+    } else if (!isNonScoredType) {
       setStreak(0)
       setPointsAwarded(0)
     }
 
     setTimeout(() => {
-      if (correct) audio.play('correct')
+      if (isNonScoredType) audio.play('answerSubmit')
+      else if (correct) audio.play('correct')
       else audio.play('incorrect')
       setPhase('result')
       if (earnedPts > 0) animatePoints(earnedPts)
@@ -879,71 +894,81 @@ function PuzzleInput({
   onSubmit: (answerData: Record<string, unknown>, answerIndex: number) => void
 }) {
   const items = (question.options as { text: string }[] | null) || []
-  // Shuffle items on mount using a stable seed
   const [order, setOrder] = useState<number[]>(() => {
     const indices = items.map((_, i) => i)
-    // Fisher-Yates shuffle
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]]
     }
     return indices
   })
-  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [activeIdx, setActiveIdx] = useState<number | null>(null)
+  const touchStartY = useRef(0)
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  function moveUp(pos: number) {
-    if (pos <= 0) return
-    const newOrder = [...order];
-    [newOrder[pos], newOrder[pos - 1]] = [newOrder[pos - 1], newOrder[pos]]
-    setOrder(newOrder)
-  }
-
-  function moveDown(pos: number) {
-    if (pos >= order.length - 1) return
-    const newOrder = [...order];
-    [newOrder[pos], newOrder[pos + 1]] = [newOrder[pos + 1], newOrder[pos]]
-    setOrder(newOrder)
-  }
-
-  function handleDragStart(pos: number) {
-    setDragIndex(pos)
-  }
-
-  function handleDrop(targetPos: number) {
-    if (dragIndex === null || dragIndex === targetPos) return
+  function moveItem(from: number, to: number) {
+    if (to < 0 || to >= order.length || from === to) return
     const newOrder = [...order]
-    const [moved] = newOrder.splice(dragIndex, 1)
-    newOrder.splice(targetPos, 0, moved)
+    const [moved] = newOrder.splice(from, 1)
+    newOrder.splice(to, 0, moved)
     setOrder(newOrder)
-    setDragIndex(null)
+    return to
+  }
+
+  function handleTouchStart(pos: number, e: React.TouchEvent) {
+    e.preventDefault()
+    setActiveIdx(pos)
+    touchStartY.current = e.touches[0].clientY
+  }
+
+  function handleTouchMove(pos: number, e: React.TouchEvent) {
+    if (activeIdx === null) return
+    e.preventDefault()
+    const touch = e.touches[0]
+    const deltaY = touch.clientY - touchStartY.current
+    const itemHeight = 52 // approx item height + gap
+
+    if (Math.abs(deltaY) > itemHeight * 0.6) {
+      const direction = deltaY > 0 ? 1 : -1
+      const newPos = moveItem(activeIdx, activeIdx + direction)
+      if (newPos !== undefined) {
+        setActiveIdx(newPos)
+        touchStartY.current = touch.clientY
+      }
+    }
+  }
+
+  function handleTouchEnd() {
+    setActiveIdx(null)
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#1a1a2e' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#1a1a2e', touchAction: 'none', overscrollBehavior: 'none' }}>
       <div className="text-center text-white/50 text-xs py-1 font-bold mb-3">
         {question.index + 1} of {question.totalQuestions}
       </div>
       <div className="w-full max-w-sm animate-answer-pop">
-        <p className="text-white/60 text-sm text-center mb-3">Arrange in the correct order</p>
+        <p className="text-white/60 text-sm text-center mb-3">Drag or tap arrows to reorder</p>
         <div className="space-y-2">
           {order.map((itemIdx, pos) => (
             <div
               key={itemIdx}
-              draggable
-              onDragStart={() => handleDragStart(pos)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => handleDrop(pos)}
-              className={`flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-xl px-3 py-3 cursor-grab active:cursor-grabbing transition-all ${
-                dragIndex === pos ? 'opacity-50 scale-95' : ''
+              ref={(el) => { itemRefs.current[pos] = el }}
+              onTouchStart={(e) => handleTouchStart(pos, e)}
+              onTouchMove={(e) => handleTouchMove(pos, e)}
+              onTouchEnd={handleTouchEnd}
+              className={`flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-xl px-3 py-3 select-none transition-all ${
+                activeIdx === pos ? 'bg-white/20 scale-105 shadow-lg' : ''
               }`}
+              style={{ touchAction: 'none' }}
             >
               <span className="text-white/30 text-xs font-bold w-5">{pos + 1}</span>
               <span className="text-white font-bold text-sm flex-1">{items[itemIdx]?.text || `Item ${itemIdx + 1}`}</span>
-              <div className="flex flex-col gap-0.5">
-                <button onClick={() => moveUp(pos)} disabled={pos === 0}
-                  className="text-white/40 hover:text-white disabled:opacity-20 text-xs leading-none">▲</button>
-                <button onClick={() => moveDown(pos)} disabled={pos === order.length - 1}
-                  className="text-white/40 hover:text-white disabled:opacity-20 text-xs leading-none">▼</button>
+              <div className="flex flex-col gap-1">
+                <button onClick={() => moveItem(pos, pos - 1)} disabled={pos === 0}
+                  className="text-white/40 hover:text-white disabled:opacity-20 text-base leading-none p-1">▲</button>
+                <button onClick={() => moveItem(pos, pos + 1)} disabled={pos === order.length - 1}
+                  className="text-white/40 hover:text-white disabled:opacity-20 text-base leading-none p-1">▼</button>
               </div>
             </div>
           ))}
