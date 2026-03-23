@@ -45,6 +45,8 @@ export function PlayerGame({ pin }: { pin: string }) {
   const questionsRef = useRef<QuestionData[]>([])
   const playerTimerRef = useRef<NodeJS.Timeout | null>(null)
   const answerLockedRef = useRef(false)
+  const gameOverRef = useRef(false)
+  const rankingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const supabase = createClient()
   const audio = useGameAudio()
 
@@ -132,13 +134,21 @@ export function PlayerGame({ pin }: { pin: string }) {
     const q = questionsRef.current[index]
     if (!q) return
 
+    // Cancel any pending ranking transition from previous question
+    if (rankingTimeoutRef.current) {
+      clearTimeout(rankingTimeoutRef.current)
+      rankingTimeoutRef.current = null
+    }
+
     setQuestion(q)
     setSelectedAnswer(null)
     setSelectedIndex(null)
     setIsCorrect(null)
     setPointsAwarded(0)
     setDisplayedPoints(0)
-    setPlayerTimeLeft(q.timeLimit)
+    // Add 2s buffer — host's answer_lock should fire first,
+    // this is a fallback so it must expire AFTER the host
+    setPlayerTimeLeft(q.timeLimit + 2)
     answerLockedRef.current = false
     setPhase('question')
     questionStartRef.current = Date.now()
@@ -175,8 +185,9 @@ export function PlayerGame({ pin }: { pin: string }) {
     audio.play('timesUp')
     setPhase('timeUp')
 
-    // Transition to ranking after 3s
-    setTimeout(async () => {
+    // Transition to ranking after 3s (unless game already ended)
+    rankingTimeoutRef.current = setTimeout(async () => {
+      if (gameOverRef.current) return
       if (sessionId && participantId) {
         const { data: participants } = await supabase
           .from('participants')
@@ -190,12 +201,26 @@ export function PlayerGame({ pin }: { pin: string }) {
           setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
         }
       }
-      setPhase('ranking')
+      if (!gameOverRef.current) setPhase('ranking')
     }, 3000)
   }
 
   // Fetch podium data from DB and transition to podium phase
   async function fetchPodiumAndTransition(sid: string, pid: string) {
+    if (gameOverRef.current) return // Already transitioning
+    gameOverRef.current = true
+
+    // Cancel any pending ranking timeout so it can't overwrite podium
+    if (rankingTimeoutRef.current) {
+      clearTimeout(rankingTimeoutRef.current)
+      rankingTimeoutRef.current = null
+    }
+    // Cancel player timer
+    if (playerTimerRef.current) {
+      clearTimeout(playerTimerRef.current)
+      playerTimerRef.current = null
+    }
+
     const { data: myParticipant } = await supabase
       .from('participants')
       .select('total_score, rank')
@@ -216,9 +241,9 @@ export function PlayerGame({ pin }: { pin: string }) {
 
     if (topPlayers) {
       setPodiumData(topPlayers.map((p: Record<string, unknown>, i: number) => ({
-        nickname: p.nickname,
-        score: p.total_score || 0,
-        rank: p.rank || i + 1,
+        nickname: p.nickname as string,
+        score: (p.total_score as number) || 0,
+        rank: (p.rank as number) || i + 1,
       })))
     }
 
@@ -352,8 +377,9 @@ export function PlayerGame({ pin }: { pin: string }) {
       }
     }, 600)
 
-    // After result, transition to ranking
-    setTimeout(async () => {
+    // After result, transition to ranking (unless game already ended)
+    rankingTimeoutRef.current = setTimeout(async () => {
+      if (gameOverRef.current) return
       if (sessionId) {
         const { data: participants } = await supabase
           .from('participants')
@@ -367,7 +393,7 @@ export function PlayerGame({ pin }: { pin: string }) {
           setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
         }
       }
-      setPhase('ranking')
+      if (!gameOverRef.current) setPhase('ranking')
     }, 3100)
 
     // Send via Broadcast

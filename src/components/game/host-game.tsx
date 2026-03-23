@@ -200,10 +200,12 @@ export function HostGame({
       payload: {},
     })
 
+    // Only set status to active — DO NOT set current_question_index yet.
+    // The player polls for index changes, so setting it here would make
+    // them see the question before the Get Ready countdown finishes.
     supabase.from('sessions').update({
       status: 'active',
       started_at: new Date().toISOString(),
-      current_question_index: 0,
     }).eq('id', session.id).then(() => {})
 
     // Show Get Ready screen first
