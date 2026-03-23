@@ -130,6 +130,20 @@ export function PlayerGame({ pin }: { pin: string }) {
           return
         }
 
+        // Polling backup for answer lock (in case Postgres Changes missed it)
+        if (session.status === 'reviewing' && !answerLockedRef.current && phaseRef.current === 'question') {
+          answerLockedRef.current = true
+          setStreak(0)
+          audio.play('timesUp')
+          setIsCorrect(false)
+          setPointsAwarded(0)
+          setPhase('timeUp')
+          setTimeout(() => {
+            if (podiumTriggeredRef.current) return
+            fetchRankAndShow()
+          }, 2500)
+        }
+
         if (
           session.status === 'active' &&
           session.current_question_index >= 0 &&
@@ -164,13 +178,36 @@ export function PlayerGame({ pin }: { pin: string }) {
           filter: `id=eq.${sessionId}`,
         },
         (payload: { new: Record<string, unknown> }) => {
-          if (payload.new.status === 'completed') {
+          const newStatus = payload.new.status as string
+
+          // ANSWER LOCK: Host timer expired → lock player immediately
+          if (newStatus === 'reviewing') {
+            if (!answerLockedRef.current && phaseRef.current === 'question') {
+              answerLockedRef.current = true
+              setStreak(0)
+              audio.play('timesUp')
+              setIsCorrect(false)
+              setPointsAwarded(0)
+              setPhase('timeUp')
+              setTimeout(() => {
+                if (podiumTriggeredRef.current) return
+                fetchRankAndShow()
+              }, 2500)
+            } else {
+              // Player already answered — just ensure locked
+              answerLockedRef.current = true
+            }
+          }
+
+          // GAME OVER: Scores are already written, show podium
+          if (newStatus === 'completed') {
             goToPodium()
           }
-          // Also detect new questions via server push
+
+          // NEW QUESTION: Unlock answers and load question
           const newIndex = payload.new.current_question_index as number
           if (
-            payload.new.status === 'active' &&
+            newStatus === 'active' &&
             newIndex >= 0 &&
             newIndex !== lastQuestionIndexRef.current
           ) {

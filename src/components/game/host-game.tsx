@@ -255,12 +255,15 @@ export function HostGame({
       },
     })
 
-    supabase.from('sessions').update({ current_question_index: index }).eq('id', session.id).then(() => {})
+    supabase.from('sessions').update({ current_question_index: index, status: 'active' }).eq('id', session.id).then(() => {})
   }
 
   const handleShowResults = useCallback(() => {
     if (!currentQuestion) return
     setPhase('results')
+
+    // Lock answers in DB — Postgres Changes pushes this to players instantly
+    supabase.from('sessions').update({ status: 'reviewing' }).eq('id', session.id).then(() => {})
 
     const newScores = new Map(scores)
     const deltas = new Map<string, number>()
@@ -345,26 +348,31 @@ export function HostGame({
     }
   }
 
-  function showPodium() {
+  async function showPodium() {
     setPhase('podium')
-    audio.stopLobbyMusic() // Stop BGM at game end
+    audio.stopLobbyMusic()
     audio.play('podiumCelebration')
 
-    for (const [id, s] of scores) {
+    // Write scores and ranks FIRST — must complete before status change
+    // so player reads correct values when podium triggers
+    const scoreWrites = Array.from(scores).map(([id, s]) =>
       supabase.from('participants').update({
         total_score: s.score,
         total_correct: s.streak,
-      }).eq('id', id).then(() => {})
-    }
+      }).eq('id', id)
+    )
 
-    leaderboard.forEach((entry, i) => {
-      supabase.from('participants').update({ rank: i + 1 }).eq('id', entry.id).then(() => {})
-    })
+    const rankWrites = leaderboard.map((entry, i) =>
+      supabase.from('participants').update({ rank: i + 1 }).eq('id', entry.id)
+    )
 
-    supabase.from('sessions').update({
+    await Promise.all([...scoreWrites, ...rankWrites])
+
+    // THEN set completed — this triggers player podium via Postgres Changes
+    await supabase.from('sessions').update({
       status: 'completed',
       ended_at: new Date().toISOString(),
-    }).eq('id', session.id).then(() => {})
+    }).eq('id', session.id)
 
     supabase.rpc('increment_play_count', { quiz_id_input: session.quiz_id }).then(() => {})
 
