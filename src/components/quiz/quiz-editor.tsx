@@ -146,47 +146,71 @@ export function QuizEditor({
   // ── SAVE ALL ──
   async function saveAll() {
     setSaving(true)
-    const errors: string[] = []
 
-    // 1. Delete removed questions
-    for (const id of deletedIds) {
-      const { error } = await supabase.from('questions').delete().eq('id', id)
-      if (error) errors.push(`Delete ${id}: ${error.message}`)
-    }
+    try {
+      // 1. Delete removed questions
+      if (deletedIds.length > 0) {
+        const { error } = await supabase
+          .from('questions')
+          .delete()
+          .in('id', deletedIds)
+        if (error) {
+          console.error('Delete failed:', error)
+          setToast(`Save failed: ${error.message}`)
+          setSaving(false)
+          return
+        }
+      }
 
-    // 2. Update all remaining questions (content + sort_order)
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i]
-      const { error } = await supabase.from('questions').update({
-        question_text: q.question_text,
-        options: q.options,
-        correct_answers: q.correct_answers,
-        time_limit: q.time_limit,
-        points: q.points,
-        media_url: q.media_url,
-        sort_order: i,
-      }).eq('id', q.id)
-      if (error) errors.push(`Update Q${i + 1}: ${error.message}`)
-    }
+      // 2. Update all remaining questions (content + sort_order)
+      // Use Promise.allSettled so one failure doesn't block the rest
+      const updateResults = await Promise.allSettled(
+        questions.map((q, i) =>
+          supabase.from('questions').update({
+            question_text: q.question_text,
+            options: q.options,
+            correct_answers: q.correct_answers,
+            time_limit: q.time_limit,
+            points: q.points,
+            media_url: q.media_url,
+            sort_order: i,
+          }).eq('id', q.id)
+        )
+      )
 
-    // 3. Update quiz title + question count + cover image
-    const { error: quizError } = await supabase.from('quizzes').update({
-      title,
-      cover_image_url: coverImageUrl,
-      question_count: questions.length,
-      updated_at: new Date().toISOString(),
-    }).eq('id', quiz.id)
-    if (quizError) errors.push(`Quiz update: ${quizError.message}`)
+      const updateErrors = updateResults
+        .map((r, i) => r.status === 'fulfilled' && r.value.error ? `Q${i + 1}: ${r.value.error.message}` : null)
+        .filter(Boolean)
 
-    if (errors.length > 0) {
-      console.error('Save errors:', errors)
-      setToast('Some changes failed to save. Check console.')
-    } else {
+      if (updateErrors.length > 0) {
+        console.error('Update errors:', updateErrors)
+        setToast(`Save failed: ${updateErrors[0]}`)
+        setSaving(false)
+        return
+      }
+
+      // 3. Update quiz title + question count + cover image
+      const { error: quizError } = await supabase.from('quizzes').update({
+        title,
+        cover_image_url: coverImageUrl,
+        question_count: questions.length,
+        updated_at: new Date().toISOString(),
+      }).eq('id', quiz.id)
+
+      if (quizError) {
+        console.error('Quiz update failed:', quizError)
+        setToast(`Save failed: ${quizError.message}`)
+        setSaving(false)
+        return
+      }
+
       setDeletedIds([])
       setIsDirty(false)
       setToast('Saved successfully!')
-      // Force Next.js to re-fetch server data on next navigation
       router.refresh()
+    } catch (err) {
+      console.error('Save exception:', err)
+      setToast(`Save failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
     setSaving(false)
   }

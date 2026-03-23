@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-const BANNER_WIDTH = 600
-const BANNER_HEIGHT = 200
-const BANNER_RATIO = BANNER_WIDTH / BANNER_HEIGHT
+const OUTPUT_W = 600
+const OUTPUT_H = 200
+const RATIO = OUTPUT_W / OUTPUT_H
 
 interface Props {
   quizId: string
@@ -46,17 +46,10 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
       return
     }
 
-    const { data: urlData } = supabase.storage
-      .from('quiz-covers')
-      .getPublicUrl(fileName)
-
+    const { data: urlData } = supabase.storage.from('quiz-covers').getPublicUrl(fileName)
     setShowModal(false)
     setUploading(false)
     onUpdate(urlData.publicUrl)
-  }
-
-  function handleRemove() {
-    onUpdate(null)
   }
 
   return (
@@ -64,14 +57,13 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
       <div className="flex items-center justify-between">
         <label className="block text-xs font-bold text-dark-text">Banner image</label>
         {coverImageUrl && (
-          <button onClick={handleRemove} className="text-xs text-answer-red hover:underline">Remove</button>
+          <button onClick={() => onUpdate(null)} className="text-xs text-answer-red hover:underline">Remove</button>
         )}
       </div>
 
-      {/* Preview / Upload area */}
       {coverImageUrl ? (
         <div className="relative group">
-          <div className="w-full rounded-lg overflow-hidden border border-border-gray" style={{ aspectRatio: `${BANNER_RATIO}` }}>
+          <div className="w-full rounded-lg overflow-hidden border border-border-gray" style={{ aspectRatio: `${RATIO}` }}>
             <img src={coverImageUrl} alt="Banner" className="w-full h-full object-cover" />
           </div>
           <button
@@ -85,7 +77,7 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
         <button
           onClick={() => fileInputRef.current?.click()}
           className="w-full border-2 border-dashed border-mid-gray rounded-lg flex flex-col items-center justify-center py-6 text-gray-text hover:border-blue-cta hover:text-blue-cta transition-colors"
-          style={{ aspectRatio: `${BANNER_RATIO}` }}
+          style={{ aspectRatio: `${RATIO}` }}
         >
           <span className="text-2xl mb-1">🖼️</span>
           <span className="text-xs font-bold">Upload banner</span>
@@ -95,7 +87,6 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
 
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
 
-      {/* Modal */}
       {showModal && imageSrc && (
         <CropModal
           src={imageSrc}
@@ -109,6 +100,8 @@ export function BannerEditor({ quizId, coverImageUrl, onUpdate }: Props) {
 }
 
 // ── CROP MODAL ──────────────────────────────────
+// Uses a simple approach: CSS transform for preview, canvas for output.
+// All coordinates are in "source image pixels" so preview and output match exactly.
 
 function CropModal({
   src,
@@ -121,110 +114,132 @@ function CropModal({
   onCancel: () => void
   uploading: boolean
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imgRef = useRef<HTMLImageElement | null>(null)
   const frameRef = useRef<HTMLDivElement>(null)
+  const imgEl = useRef<HTMLImageElement | null>(null)
 
-  const [scale, setScale] = useState(1)
-  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  // State in source-image-pixel coordinates
+  const [imgW, setImgW] = useState(0)
+  const [imgH, setImgH] = useState(0)
+  const [zoom, setZoom] = useState(1) // 1 = cover fit
+  // cropX/cropY = top-left corner of the visible crop area in source coords
+  const [cropX, setCropX] = useState(0)
+  const [cropY, setCropY] = useState(0)
+
   const [dragging, setDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-  const [imgLoaded, setImgLoaded] = useState(false)
-  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 })
-  const [baseScale, setBaseScale] = useState(1)
+  const [dragAnchor, setDragAnchor] = useState({ x: 0, y: 0, cx: 0, cy: 0 })
+  const [ready, setReady] = useState(false)
+
+  // The "base crop" size in source pixels (at zoom=1, crop covers entire visible area)
+  // At zoom=1, the crop is as large as possible while maintaining RATIO
+  const baseCropW = imgW > 0 ? (imgW / imgH > RATIO ? imgH * RATIO : imgW) : 0
+  const baseCropH = imgH > 0 ? (imgW / imgH > RATIO ? imgH : imgW / RATIO) : 0
+
+  // Actual crop size at current zoom (smaller = more zoomed in)
+  const cropW = baseCropW / zoom
+  const cropH = baseCropH / zoom
+
+  // Max offsets to keep crop within image bounds
+  const maxCropX = Math.max(0, imgW - cropW)
+  const maxCropY = Math.max(0, imgH - cropH)
 
   // Load image
   useEffect(() => {
     const img = new Image()
     img.onload = () => {
-      imgRef.current = img
-      setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
-
-      // Calculate base scale so image covers the frame
-      const frameW = 480
-      const frameH = frameW / BANNER_RATIO
-      const coverScale = Math.max(frameW / img.naturalWidth, frameH / img.naturalHeight)
-      setBaseScale(coverScale)
-      setScale(1)
-
-      // Center the image
-      const displayW = img.naturalWidth * coverScale
-      const displayH = img.naturalHeight * coverScale
-      setOffset({
-        x: (frameW - displayW) / 2,
-        y: (frameH - displayH) / 2,
-      })
-
-      setImgLoaded(true)
+      imgEl.current = img
+      setImgW(img.naturalWidth)
+      setImgH(img.naturalHeight)
+      // Center crop initially
+      const bw = img.naturalWidth / img.naturalHeight > RATIO ? img.naturalHeight * RATIO : img.naturalWidth
+      const bh = img.naturalWidth / img.naturalHeight > RATIO ? img.naturalHeight : img.naturalWidth / RATIO
+      setCropX((img.naturalWidth - bw) / 2)
+      setCropY((img.naturalHeight - bh) / 2)
+      setZoom(1)
+      setReady(true)
     }
     img.src = src
   }, [src])
 
-  const frameW = 480
-  const frameH = frameW / BANNER_RATIO
-  const totalScale = baseScale * scale
-  const displayW = naturalSize.w * totalScale
-  const displayH = naturalSize.h * totalScale
+  // Get frame pixel size from DOM
+  const getFrameSize = useCallback(() => {
+    if (!frameRef.current) return { fw: 400, fh: 400 / RATIO }
+    const rect = frameRef.current.getBoundingClientRect()
+    return { fw: rect.width, fh: rect.height }
+  }, [])
 
-  // Mouse handlers
-  function onMouseDown(e: React.MouseEvent) {
+  // Convert screen pixels to source-image pixels
+  function screenToSource(dx: number, dy: number) {
+    const { fw } = getFrameSize()
+    const pixelsPerSource = fw / cropW // how many screen px per source px
+    return { sx: dx / pixelsPerSource, sy: dy / pixelsPerSource }
+  }
+
+  // Clamp crop position
+  function clampCrop(x: number, y: number) {
+    return {
+      x: Math.max(0, Math.min(x, imgW - cropW)),
+      y: Math.max(0, Math.min(y, imgH - cropH)),
+    }
+  }
+
+  // Mouse drag
+  function onPointerDown(e: React.PointerEvent) {
     e.preventDefault()
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     setDragging(true)
-    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y })
+    setDragAnchor({ x: e.clientX, y: e.clientY, cx: cropX, cy: cropY })
   }
-  function onMouseMove(e: React.MouseEvent) {
+
+  function onPointerMove(e: React.PointerEvent) {
     if (!dragging) return
-    setOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y })
-  }
-  function onMouseUp() { setDragging(false) }
-
-  // Touch handlers
-  function onTouchStart(e: React.TouchEvent) {
-    const t = e.touches[0]
-    setDragging(true)
-    setDragStart({ x: t.clientX - offset.x, y: t.clientY - offset.y })
-  }
-  function onTouchMove(e: React.TouchEvent) {
-    if (!dragging) return
-    e.preventDefault()
-    const t = e.touches[0]
-    setOffset({ x: t.clientX - dragStart.x, y: t.clientY - dragStart.y })
+    const dx = e.clientX - dragAnchor.x
+    const dy = e.clientY - dragAnchor.y
+    const { sx, sy } = screenToSource(dx, dy)
+    // Moving the mouse right means the image slides right → crop moves LEFT in source coords
+    const clamped = clampCrop(dragAnchor.cx - sx, dragAnchor.cy - sy)
+    setCropX(clamped.x)
+    setCropY(clamped.y)
   }
 
-  function handleZoom(newScale: number) {
-    const clamped = Math.max(0.5, Math.min(3, newScale))
-    // Zoom toward center of frame
-    const oldTotal = baseScale * scale
-    const newTotal = baseScale * clamped
-    const cx = frameW / 2
-    const cy = frameH / 2
-    setOffset((prev) => ({
-      x: cx - (cx - prev.x) * (newTotal / oldTotal),
-      y: cy - (cy - prev.y) * (newTotal / oldTotal),
-    }))
-    setScale(clamped)
+  function onPointerUp() {
+    setDragging(false)
   }
 
+  function handleZoom(newZoom: number) {
+    const z = Math.max(1, Math.min(4, newZoom))
+    // Zoom toward center of current crop
+    const oldCW = baseCropW / zoom
+    const oldCH = baseCropH / zoom
+    const newCW = baseCropW / z
+    const newCH = baseCropH / z
+    const centerX = cropX + oldCW / 2
+    const centerY = cropY + oldCH / 2
+    const nx = centerX - newCW / 2
+    const ny = centerY - newCH / 2
+    const clamped = {
+      x: Math.max(0, Math.min(nx, imgW - newCW)),
+      y: Math.max(0, Math.min(ny, imgH - newCH)),
+    }
+    setCropX(clamped.x)
+    setCropY(clamped.y)
+    setZoom(z)
+  }
+
+  // Apply: draw cropped region to canvas
   function handleApply() {
-    if (!imgRef.current) return
+    if (!imgEl.current) return
     const canvas = document.createElement('canvas')
-    canvas.width = BANNER_WIDTH
-    canvas.height = BANNER_HEIGHT
+    canvas.width = OUTPUT_W
+    canvas.height = OUTPUT_H
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Map frame coordinates to source image coordinates
-    const ratio = BANNER_WIDTH / frameW
-    const sx = -offset.x * ratio
-    const sy = -offset.y * ratio
-    const sw = BANNER_WIDTH
-    const sh = BANNER_HEIGHT
-    const dw = displayW * ratio
-    const dh = displayH * ratio
-    const dx = offset.x * ratio
-    const dy = offset.y * ratio
-
-    ctx.drawImage(imgRef.current, dx, dy, dw, dh)
+    // Draw the crop region from source image to output canvas
+    ctx.drawImage(
+      imgEl.current,
+      cropX, cropY, cropW, cropH, // source rect
+      0, 0, OUTPUT_W, OUTPUT_H    // destination rect
+    )
 
     canvas.toBlob(
       (blob) => { if (blob) onCrop(blob) },
@@ -233,9 +248,16 @@ function CropModal({
     )
   }
 
+  // CSS transform: position source image so that cropX,cropY maps to frame top-left
+  // and cropW maps to frame width
+  const { fw: framePixelW } = getFrameSize()
+  const scaleCSS = ready ? framePixelW / cropW : 1
+  const translateX = ready ? -cropX * scaleCSS : 0
+  const translateY = ready ? -cropY * scaleCSS : 0
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-2xl p-6 max-w-[540px] w-full mx-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold text-dark-text">Crop banner image</h3>
           <button onClick={onCancel} className="text-gray-text hover:text-dark-text text-sm">✕</button>
@@ -246,80 +268,60 @@ function CropModal({
         {/* Crop frame */}
         <div
           ref={frameRef}
-          className="rounded-lg overflow-hidden border-2 border-blue-cta relative select-none bg-black mx-auto"
+          className="w-full rounded-lg overflow-hidden border-2 border-blue-cta relative bg-black"
           style={{
-            width: `${frameW}px`,
-            height: `${frameH}px`,
-            maxWidth: '100%',
+            aspectRatio: `${RATIO}`,
             cursor: dragging ? 'grabbing' : 'grab',
             touchAction: 'none',
           }}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={() => setDragging(false)}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
         >
-          {imgLoaded && (
+          {ready && (
             <img
               src={src}
               alt=""
-              className="absolute pointer-events-none"
+              className="absolute top-0 left-0 pointer-events-none origin-top-left"
               style={{
-                width: `${displayW}px`,
-                height: `${displayH}px`,
-                left: `${offset.x}px`,
-                top: `${offset.y}px`,
+                width: `${imgW}px`,
+                height: `${imgH}px`,
+                transform: `scale(${scaleCSS}) translate(${-cropX}px, ${-cropY}px)`,
+                transformOrigin: '0 0',
               }}
               draggable={false}
             />
           )}
         </div>
 
-        {/* Zoom controls */}
+        {/* Zoom */}
         <div className="flex items-center gap-3 mt-4">
           <button
-            onClick={() => handleZoom(scale - 0.1)}
+            onClick={() => handleZoom(zoom - 0.2)}
             className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center"
-          >
-            −
-          </button>
+          >−</button>
           <input
-            type="range"
-            min={0.5}
-            max={3}
-            step={0.05}
-            value={scale}
+            type="range" min={1} max={4} step={0.05} value={zoom}
             onChange={(e) => handleZoom(Number(e.target.value))}
             className="flex-1 accent-blue-cta h-1.5"
           />
           <button
-            onClick={() => handleZoom(scale + 0.1)}
+            onClick={() => handleZoom(zoom + 0.2)}
             className="w-8 h-8 rounded-lg bg-light-gray border border-border-gray text-dark-text text-sm font-bold hover:bg-mid-gray transition-colors flex items-center justify-center"
-          >
-            +
-          </button>
-          <span className="text-xs text-gray-text w-12 text-right tabular-nums">{Math.round(scale * 100)}%</span>
+          >+</button>
+          <span className="text-xs text-gray-text w-12 text-right tabular-nums">{Math.round(zoom * 100)}%</span>
         </div>
 
         {/* Actions */}
         <div className="flex gap-3 mt-5">
           <button
-            onClick={onCancel}
-            disabled={uploading}
+            onClick={onCancel} disabled={uploading}
             className="flex-1 h-10 border border-border-gray text-gray-text text-sm font-bold rounded-lg hover:bg-light-gray transition-colors disabled:opacity-40"
-          >
-            Cancel
-          </button>
+          >Cancel</button>
           <button
-            onClick={handleApply}
-            disabled={uploading}
+            onClick={handleApply} disabled={uploading}
             className="flex-1 h-10 bg-blue-cta text-white text-sm font-bold rounded-lg hover:bg-blue-accent transition-colors disabled:opacity-60"
-          >
-            {uploading ? 'Uploading...' : 'Apply'}
-          </button>
+          >{uploading ? 'Uploading...' : 'Apply'}</button>
         </div>
       </div>
     </div>
