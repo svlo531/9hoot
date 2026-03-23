@@ -1063,12 +1063,8 @@ function ResultsScreen({
   if (question.type === 'word_cloud') {
     const wordMap = new Map<string, number>()
     for (const a of answers) {
-      const raw = ((a.answerData.text as string) || '').trim().toLowerCase()
-      // Split multi-word responses into individual words for the cloud
-      const responseWords = raw.split(/\s+/).filter(Boolean)
-      for (const w of responseWords) {
-        wordMap.set(w, (wordMap.get(w) || 0) + 1)
-      }
+      const phrase = ((a.answerData.text as string) || '').trim().toLowerCase()
+      if (phrase) wordMap.set(phrase, (wordMap.get(phrase) || 0) + 1)
     }
     const words = Array.from(wordMap.entries())
       .sort((a, b) => b[1] - a[1])
