@@ -282,16 +282,9 @@ export function HostGame({
       }
 
       newScores.set(answer.participantId, playerScore)
-
-      supabase.from('answers').insert({
-        session_id: session.id,
-        participant_id: answer.participantId,
-        question_id: currentQuestion.id,
-        answer_data: answer.answerData,
-        is_correct: isCorrect,
-        points_awarded: deltas.get(answer.participantId) || 0,
-        time_taken_ms: answer.timeTakenMs,
-      }).then(() => {})
+      // NOTE: Player already inserted the answer row to DB.
+      // Host only calculates scores in memory — final totals
+      // are written to participants table in showPodium().
     }
 
     setScores(newScores)

@@ -355,16 +355,15 @@ export function PlayerGame({ pin }: { pin: string }) {
       payload: { participantId, nickname, answerData, timeTakenMs },
     })
 
-    const dbPts = correct ? calculateScore(question.points, timeTakenMs, question.timeLimit * 1000, true) : 0
+    // Write answer to DB (host polls this for scoring)
     supabase.from('answers').insert({
       session_id: sessionId, participant_id: participantId,
       question_id: question.id, answer_data: answerData,
-      is_correct: correct, points_awarded: dbPts, time_taken_ms: timeTakenMs,
+      is_correct: correct, points_awarded: 0, time_taken_ms: timeTakenMs,
     }).then(() => {})
-
-    supabase.rpc('increment_participant_score', {
-      participant_id_input: participantId, points_input: dbPts,
-    }).then(() => {})
+    // NOTE: Player does NOT write scores to DB. Host is the single
+    // source of truth — it calculates scores in handleShowResults
+    // and writes final totals in showPodium.
   }
 
   function animatePoints(target: number) {
