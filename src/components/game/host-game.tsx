@@ -36,6 +36,7 @@ export function HostGame({
   const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const questionStartRef = useRef<number>(0)
+  const handleShowResultsRef = useRef<() => void>(() => {})
   const supabase = createClient()
 
   const currentQuestion = currentIndex >= 0 ? questions[currentIndex] : null
@@ -116,7 +117,7 @@ export function HostGame({
           event: 'game:answer_lock',
           payload: {},
         })
-        handleShowResults()
+        handleShowResultsRef.current()
       } else {
         setTimeLeft(timeLeft - 1)
       }
@@ -141,6 +142,39 @@ export function HostGame({
       handleShowResults()
     }
   }, [answers.length, players.size, phase])
+
+  // Poll DB for answers during question phase (fallback when Broadcast doesn't deliver)
+  useEffect(() => {
+    if (phase !== 'question' || !currentQuestion) return
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('answers')
+        .select('participant_id, answer_data, time_taken_ms')
+        .eq('session_id', session.id)
+        .eq('question_id', currentQuestion.id)
+
+      if (data && data.length > 0) {
+        setAnswers((prev) => {
+          const existing = new Set(prev.map((a) => a.participantId))
+          const newAnswers = [...prev]
+          for (const a of data) {
+            if (!existing.has(a.participant_id)) {
+              const player = Array.from(players.values()).find((p) => p.id === a.participant_id)
+              newAnswers.push({
+                participantId: a.participant_id,
+                nickname: player?.nickname || 'Player',
+                answerData: a.answer_data as Record<string, unknown>,
+                timeTakenMs: a.time_taken_ms || 5000,
+              })
+              existing.add(a.participant_id)
+            }
+          }
+          return newAnswers
+        })
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [phase, currentQuestion, session.id, players, supabase])
 
   function startGame() {
     setPhase('question')
@@ -253,6 +287,9 @@ export function HostGame({
       },
     })
   }, [currentQuestion, answers, scores, players, session.id, supabase])
+
+  // Keep ref in sync for timer callback
+  handleShowResultsRef.current = handleShowResults
 
   function getAnswerCounts() {
     const counts: Record<string, number> = {}

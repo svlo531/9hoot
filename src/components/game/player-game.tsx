@@ -75,38 +75,6 @@ export function PlayerGame({ pin }: { pin: string }) {
         session.current_question_index !== lastQuestionIndexRef.current
       ) {
         const newIndex = session.current_question_index
-
-        // If we were on a previous question and hadn't seen results yet, show them briefly
-        if (phase === 'answered' || phase === 'question') {
-          // Check if our answer for the previous question was graded
-          if (lastQuestionIndexRef.current >= 0 && selectedAnswer) {
-            const prevQ = questionsRef.current[lastQuestionIndexRef.current]
-            if (prevQ) {
-              const correct = checkAnswer(prevQ.type, selectedAnswer, prevQ.correctAnswers)
-              setIsCorrect(correct)
-              if (correct) {
-                const timeTaken = Date.now() - questionStartRef.current
-                const pts = calculateScore(prevQ.points, timeTaken, prevQ.timeLimit * 1000, true)
-                const multiplied = Math.round(pts * getStreakMultiplier(streak + 1))
-                setPointsAwarded(multiplied)
-                setTotalScore((prev) => prev + multiplied)
-                setStreak((s) => s + 1)
-              } else {
-                setStreak(0)
-                setPointsAwarded(0)
-              }
-              setPhase('result')
-              // Show result briefly then advance to new question
-              setTimeout(() => {
-                loadQuestion(newIndex)
-              }, 2000)
-              lastQuestionIndexRef.current = newIndex
-              return
-            }
-          }
-        }
-
-        // Direct advance to new question
         lastQuestionIndexRef.current = newIndex
         loadQuestion(newIndex)
       }
@@ -229,9 +197,26 @@ export function PlayerGame({ pin }: { pin: string }) {
   function submitAnswer(answerData: Record<string, unknown>) {
     if (!participantId || !question) return
     setSelectedAnswer(answerData)
-    setPhase('answered')
 
     const timeTakenMs = Date.now() - questionStartRef.current
+
+    // Check correctness immediately — we have the answer key cached
+    const correct = checkAnswer(question.type, answerData, question.correctAnswers)
+    setIsCorrect(correct)
+
+    if (correct) {
+      const pts = calculateScore(question.points, timeTakenMs, question.timeLimit * 1000, true)
+      const multiplied = Math.round(pts * getStreakMultiplier(streak + 1))
+      setPointsAwarded(multiplied)
+      setTotalScore((prev) => prev + multiplied)
+      setStreak((s) => s + 1)
+    } else {
+      setStreak(0)
+      setPointsAwarded(0)
+    }
+
+    // Show result immediately
+    setPhase('result')
 
     // Send via Broadcast to host for real-time answer count
     channelRef.current?.send({
@@ -251,8 +236,8 @@ export function PlayerGame({ pin }: { pin: string }) {
       participant_id: participantId,
       question_id: question.id,
       answer_data: answerData,
-      is_correct: checkAnswer(question.type, answerData, question.correctAnswers),
-      points_awarded: 0, // Host will calculate final points
+      is_correct: correct,
+      points_awarded: correct ? calculateScore(question.points, timeTakenMs, question.timeLimit * 1000, true) : 0,
       time_taken_ms: timeTakenMs,
     }).then(() => {})
   }
