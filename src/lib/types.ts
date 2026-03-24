@@ -26,6 +26,14 @@ export interface Profile {
   created_at: string
 }
 
+export interface Folder {
+  id: string
+  owner_id: string
+  name: string
+  parent_folder_id: string | null
+  created_at: string
+}
+
 export interface Quiz {
   id: string
   owner_id: string
