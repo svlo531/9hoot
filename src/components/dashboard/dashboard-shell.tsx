@@ -43,7 +43,7 @@ export function DashboardShell({
         <div className="flex items-center gap-3">
           <Link
             href="/library/new"
-            className="h-10 px-5 bg-blue-cta hover:bg-blue-accent text-white text-sm font-bold rounded-full flex items-center transition-colors"
+            className="h-10 px-5 bg-white hover:bg-gray-100 text-blue-header text-sm font-bold rounded-full flex items-center transition-colors"
           >
             Create
           </Link>

@@ -32,7 +32,7 @@ export function HostGame({
   const [currentIndex, setCurrentIndex] = useState(-1)
   const [timeLeft, setTimeLeft] = useState(0)
   const [answers, setAnswers] = useState<PlayerAnswer[]>([])
-  const [leaderboard, setLeaderboard] = useState<{ id: string; nickname: string; score: number; delta: number }[]>([])
+  const [leaderboard, setLeaderboard] = useState<{ id: string; nickname: string; score: number; delta: number; streak: number }[]>([])
   const [scores, setScores] = useState<Map<string, { score: number; streak: number }>>(new Map())
   const [muted, setMuted] = useState(false)
   const [getReadyCount, setGetReadyCount] = useState(3)
@@ -304,6 +304,7 @@ export function HostGame({
           nickname: p.nickname,
           score: s?.score || 0,
           delta: deltas.get(id) || 0,
+          streak: s?.streak || 0,
         }
       })
       .sort((a, b) => b.score - a.score)
@@ -373,7 +374,7 @@ export function HostGame({
           const id = p.id!
           const s = reconciledScores.get(id)
           const prev = scores.get(id)?.score || 0
-          return { id, nickname: p.nickname, score: s?.score || 0, delta: (s?.score || 0) - prev }
+          return { id, nickname: p.nickname, score: s?.score || 0, delta: (s?.score || 0) - prev, streak: s?.streak || 0 }
         })
         .sort((a, b) => b.score - a.score)
 
@@ -449,7 +450,7 @@ export function HostGame({
         .map(([, p]) => {
           const id = p.id!
           const s = reconciledScores.get(id)
-          return { id, nickname: p.nickname, score: s?.score || 0, delta: 0 }
+          return { id, nickname: p.nickname, score: s?.score || 0, delta: 0, streak: s?.streak || 0 }
         })
         .sort((a, b) => b.score - a.score)
 
@@ -620,6 +621,8 @@ function LobbyScreen({
   onToggleMute: () => void
   audio: ReturnType<typeof useGameAudio>
 }) {
+  const [qrDataUrl, setQrDataUrl] = useState('')
+
   // Start lobby music — persists through the entire game, stopped at podium
   useEffect(() => {
     if (!muted) {
@@ -627,22 +630,56 @@ function LobbyScreen({
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Generate QR code
+  useEffect(() => {
+    import('qrcode').then(QRCode => {
+      QRCode.toDataURL('https://9hoot.vercel.app/join', {
+        width: 140, margin: 1, color: { dark: '#1a0a3e', light: '#ffffff' },
+      }).then(url => setQrDataUrl(url))
+    })
+  }, [])
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #001b50 50%, #002a5c 100%)' }}>
-      {/* Header */}
-      <div className="text-center pt-6">
-        <h1 className="text-3xl font-bold text-white">
-          9Hoot<span className="text-yellow-accent">!</span>
-        </h1>
-        <p className="text-white/60 text-sm mt-1">{quizTitle}</p>
+      {/* Header with player count + mute */}
+      <div className="flex items-center justify-between px-6 pt-4">
+        <div className="text-left">
+          <h1 className="text-3xl font-bold text-white">
+            9Hoot<span className="text-yellow-accent">!</span>
+          </h1>
+          <p className="text-white/60 text-sm mt-0.5">{quizTitle}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="bg-white/10 rounded-full px-4 py-2 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-correct-green animate-pulse" />
+            <span className="text-white text-sm font-bold">{players.size} player{players.size !== 1 ? 's' : ''}</span>
+          </div>
+          <button
+            onClick={onToggleMute}
+            className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all"
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
+        </div>
       </div>
 
-      {/* PIN display */}
+      {/* PIN + QR display */}
       <div className="flex justify-center mt-8">
-        <div className="bg-white rounded-lg px-10 py-6 text-center shadow-2xl animate-lobby-pin">
-          <p className="text-sm text-gray-text font-bold mb-1">Game PIN:</p>
-          <p className="text-5xl font-bold text-dark-text tracking-widest">{pin}</p>
-          <p className="text-xs text-gray-text mt-2">Join at <span className="font-bold">9hoot.vercel.app/join</span></p>
+        <div className="bg-white rounded-lg shadow-2xl animate-lobby-pin flex overflow-hidden">
+          <div className="px-10 py-6 text-center">
+            <p className="text-sm text-gray-text font-bold mb-1">Game PIN:</p>
+            <p className="text-5xl font-bold text-dark-text tracking-widest">{pin}</p>
+            <p className="text-xs text-gray-text mt-2">Join at <span className="font-bold">9hoot.vercel.app/join</span></p>
+          </div>
+          {qrDataUrl && (
+            <>
+              <div className="w-px bg-mid-gray my-4" />
+              <div className="flex flex-col items-center justify-center px-5">
+                <img src={qrDataUrl} alt="QR code to join" className="w-28 h-28 rounded" />
+                <p className="text-[10px] text-gray-text mt-1">Scan to join</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -667,20 +704,8 @@ function LobbyScreen({
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="bg-white/10 rounded-full px-4 py-2 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-correct-green animate-pulse" />
-            <span className="text-white text-sm font-bold">{players.size} player{players.size !== 1 ? 's' : ''}</span>
-          </div>
-          <button
-            onClick={onToggleMute}
-            className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all"
-          >
-            {muted ? '🔇' : '🔊'}
-          </button>
-        </div>
+      {/* Footer — Start button only */}
+      <div className="flex justify-end px-6 py-4">
         {players.size > 0 && (
           <button
             onClick={onStart}
@@ -1349,7 +1374,7 @@ function LeaderboardScreen({
   onNext,
   isLast,
 }: {
-  leaderboard: { id: string; nickname: string; score: number; delta: number }[]
+  leaderboard: { id: string; nickname: string; score: number; delta: number; streak: number }[]
   onNext: () => void
   isLast: boolean
 }) {
@@ -1382,7 +1407,12 @@ function LeaderboardScreen({
               <span className="text-2xl w-10 text-center">
                 {isTop3 ? medals[i] : <span className="text-white/50 font-bold">{i + 1}</span>}
               </span>
-              <span className="flex-1 text-white font-bold text-lg">{entry.nickname}</span>
+              <span className="flex-1 text-white font-bold text-lg">
+                {entry.nickname}
+                {entry.streak >= 2 && (
+                  <span className="ml-2 text-sm text-yellow-accent animate-lb-delta" style={{ animationDelay: `${i * 150 + 500}ms` }}>🔥{entry.streak}</span>
+                )}
+              </span>
               {entry.delta > 0 && (
                 <span className="text-correct-green text-sm font-bold animate-lb-delta" style={{ animationDelay: `${i * 150 + 600}ms` }}>
                   +{entry.delta}
