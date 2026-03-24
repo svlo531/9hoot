@@ -246,6 +246,18 @@ export function PlayerGame({ pin }: { pin: string }) {
     })
 
     channel
+      .on('broadcast', { event: 'game:results' }, (payload: { payload?: { leaderboard?: { id: string; score: number }[] } }) => {
+        const lb = payload.payload?.leaderboard
+        if (lb && Array.isArray(lb)) {
+          const pid = participantIdRef.current
+          const myIdx = lb.findIndex(e => e.id === pid)
+          if (myIdx >= 0) {
+            setTotalScore(lb[myIdx].score)
+            setCurrentRank(myIdx + 1)
+          }
+          setPlayerCount(lb.length)
+        }
+      })
       .on('broadcast', { event: 'game:answer_lock' }, () => {
         if (answerLockedRef.current) return
         answerLockedRef.current = true
@@ -302,24 +314,9 @@ export function PlayerGame({ pin }: { pin: string }) {
     questionStartRef.current = Date.now()
   }
 
-  async function fetchRankAndShow() {
-    const sid = sessionIdRef.current
-    const pid = participantIdRef.current
-    if (sid && pid) {
-      try {
-        const { data: participants } = await supabase
-          .from('participants')
-          .select('id, total_score')
-          .eq('session_id', sid)
-          .order('total_score', { ascending: false })
-
-        if (participants) {
-          setPlayerCount(participants.length)
-          const myIndex = participants.findIndex((p: Record<string, unknown>) => p.id === pid)
-          setCurrentRank(myIndex >= 0 ? myIndex + 1 : null)
-        }
-      } catch { /* non-fatal */ }
-    }
+  function fetchRankAndShow() {
+    // Score and rank are now set by the game:results broadcast handler.
+    // No DB read needed — host never writes scores mid-game.
     if (!podiumTriggeredRef.current) setPhase('ranking')
   }
 

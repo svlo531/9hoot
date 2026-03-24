@@ -315,6 +315,7 @@ export function HostGame({
       payload: {
         correctAnswers: currentQuestion.correct_answers,
         answerCounts: getAnswerCounts(),
+        leaderboard: lb,
       },
     })
   }, [currentQuestion, answers, scores, players, session.id, supabase])
