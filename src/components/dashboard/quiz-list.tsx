@@ -10,8 +10,12 @@ export function QuizList({ quizzes }: { quizzes: Quiz[] }) {
   const supabase = createClient()
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this quiz?')) return
-    await supabase.from('quizzes').delete().eq('id', id)
+    if (!confirm('Delete this quiz and all its data?')) return
+    const { error } = await supabase.from('quizzes').delete().eq('id', id)
+    if (error) {
+      alert('Failed to delete: ' + error.message)
+      return
+    }
     router.refresh()
   }
 

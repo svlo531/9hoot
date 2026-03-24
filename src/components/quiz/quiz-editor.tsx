@@ -16,7 +16,6 @@ const QUESTION_TYPES: { type: QuestionType; label: string; icon: string; categor
   { type: 'puzzle', label: 'Puzzle', icon: '🧩', category: 'Test knowledge' },
   { type: 'poll', label: 'Poll', icon: '📊', category: 'Collect opinions' },
   { type: 'word_cloud', label: 'Word Cloud', icon: '☁️', category: 'Collect opinions' },
-  { type: 'brainstorm', label: 'Brainstorm', icon: '💡', category: 'Collect opinions' },
   { type: 'open_ended', label: 'Open-ended', icon: '💬', category: 'Collect opinions' },
   { type: 'nps_survey', label: 'NPS / Survey', icon: '📈', category: 'Collect opinions' },
   { type: 'image_reveal', label: 'Image Reveal', icon: '🖼️', category: 'Test knowledge' },
