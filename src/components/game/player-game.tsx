@@ -80,7 +80,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     try {
       const [myResult, topResult, countResult] = await Promise.all([
         supabase.from('participants').select('total_score, rank').eq('id', pid).single(),
-        supabase.from('participants').select('nickname, total_score, rank').eq('session_id', sid).order('total_score', { ascending: false }).limit(3),
+        supabase.from('participants').select('nickname, total_score, rank').eq('session_id', sid).order('total_score', { ascending: false }).limit(10),
         supabase.from('participants').select('id', { count: 'exact', head: true }).eq('session_id', sid),
       ])
 
@@ -89,12 +89,11 @@ export function PlayerGame({ pin }: { pin: string }) {
 
       // Race condition guard: if DB score is 0 but player accumulated
       // points locally, the host may not have finished writing scores yet.
-      // Retry once after 1.5s to let the write complete.
-      if (dbScore === 0 && retryCount < 2) {
-        // Keep local score for now — don't overwrite with stale DB value
+      // Retry up to 4 times (2s apart) to let the write complete.
+      if (dbScore === 0 && retryCount < 4) {
         if (dbRank) setCurrentRank(dbRank)
         if (countResult.count) setPlayerCount(countResult.count)
-        setTimeout(() => fetchPodiumData(sid, pid, retryCount + 1), 1500)
+        setTimeout(() => fetchPodiumData(sid, pid, retryCount + 1), 2000)
         return
       }
 
@@ -103,7 +102,7 @@ export function PlayerGame({ pin }: { pin: string }) {
       if (dbRank) setCurrentRank(dbRank)
 
       if (topResult.data) {
-        setPodiumData(topResult.data.map((p: Record<string, unknown>, i: number) => ({
+        setPodiumData(topResult.data.slice(0, 3).map((p: Record<string, unknown>, i: number) => ({
           nickname: p.nickname as string,
           score: (p.total_score as number) || 0,
           rank: (p.rank as number) || i + 1,
@@ -262,7 +261,22 @@ export function PlayerGame({ pin }: { pin: string }) {
           }, 2500)
         }
       })
-      .on('broadcast', { event: 'game:podium' }, () => {
+      .on('broadcast', { event: 'game:podium' }, (payload: { payload?: { podium?: { id: string; nickname: string; score: number }[] } }) => {
+        const broadcastPodium = payload.payload?.podium
+        if (broadcastPodium && Array.isArray(broadcastPodium) && broadcastPodium.length > 0) {
+          const top3 = broadcastPodium.slice(0, 3).map((p, i) => ({
+            nickname: p.nickname,
+            score: p.score || 0,
+            rank: i + 1,
+          }))
+          setPodiumData(top3)
+          setPlayerCount(broadcastPodium.length)
+          const myIdx = broadcastPodium.findIndex(p => p.nickname === nicknameRef.current)
+          if (myIdx >= 0) {
+            setCurrentRank(myIdx + 1)
+            setTotalScore(prev => Math.max(prev, broadcastPodium[myIdx].score))
+          }
+        }
         goToPodium()
       })
       .subscribe()

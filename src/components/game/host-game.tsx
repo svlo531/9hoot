@@ -267,27 +267,28 @@ export function HostGame({
 
     const newScores = new Map(scores)
     const deltas = new Map<string, number>()
+    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(currentQuestion.type)
 
-    for (const answer of answers) {
-      const isCorrect = checkAnswer(currentQuestion.type, answer.answerData, currentQuestion.correct_answers)
-      const playerScore = newScores.get(answer.participantId) || { score: 0, streak: 0 }
+    // Non-scored types don't affect scores or streaks
+    if (!isNonScored) {
+      for (const answer of answers) {
+        const isCorrect = checkAnswer(currentQuestion.type, answer.answerData, currentQuestion.correct_answers)
+        const playerScore = newScores.get(answer.participantId) || { score: 0, streak: 0 }
 
-      if (isCorrect) {
-        playerScore.streak += 1
-        const multiplier = getStreakMultiplier(playerScore.streak)
-        const base = calculateScore(currentQuestion.points, answer.timeTakenMs, currentQuestion.time_limit * 1000, true)
-        const points = Math.round(base * multiplier)
-        playerScore.score += points
-        deltas.set(answer.participantId, points)
-      } else {
-        playerScore.streak = 0
-        deltas.set(answer.participantId, 0)
+        if (isCorrect) {
+          playerScore.streak += 1
+          const multiplier = getStreakMultiplier(playerScore.streak)
+          const base = calculateScore(currentQuestion.points, answer.timeTakenMs, currentQuestion.time_limit * 1000, true)
+          const points = Math.round(base * multiplier)
+          playerScore.score += points
+          deltas.set(answer.participantId, points)
+        } else {
+          playerScore.streak = 0
+          deltas.set(answer.participantId, 0)
+        }
+
+        newScores.set(answer.participantId, playerScore)
       }
-
-      newScores.set(answer.participantId, playerScore)
-      // NOTE: Player already inserted the answer row to DB.
-      // Host only calculates scores in memory — final totals
-      // are written to participants table in showPodium().
     }
 
     setScores(newScores)
@@ -335,7 +336,7 @@ export function HostGame({
     channelRef.current?.send({
       type: 'broadcast',
       event: 'game:leaderboard',
-      payload: { leaderboard: leaderboard.slice(0, 5) },
+      payload: { leaderboard: leaderboard.slice(0, 10) },
     })
   }
 
@@ -353,22 +354,71 @@ export function HostGame({
     audio.stopLobbyMusic()
     audio.play('podiumCelebration')
 
-    // Write scores and ranks FIRST — must complete before status change
-    // so player reads correct values when podium triggers
-    const scoreWrites = Array.from(scores).map(([id, s]) =>
+    // RECONCILIATION: Fetch ALL answers from DB — players write directly,
+    // so DB is the single source of truth for answer data.
+    // This fixes missed broadcasts / polling gaps during the game.
+    const { data: allAnswers } = await supabase
+      .from('answers')
+      .select('participant_id, question_id, answer_data, time_taken_ms')
+      .eq('session_id', session.id)
+
+    let finalScores = scores
+    let finalLb = leaderboard
+
+    if (allAnswers && allAnswers.length > 0) {
+      const reconciledScores = new Map<string, { score: number; streak: number }>()
+
+      // Re-score all questions in order from DB answers
+      for (const q of questions) {
+        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(q.type)
+        if (isNonScored) continue
+
+        const qAnswers = allAnswers.filter((a: { question_id: string }) => a.question_id === q.id)
+        for (const a of qAnswers) {
+          const ps = reconciledScores.get(a.participant_id) || { score: 0, streak: 0 }
+          const isCorrect = checkAnswer(q.type, a.answer_data as Record<string, unknown>, q.correct_answers)
+          if (isCorrect) {
+            ps.streak += 1
+            const mult = getStreakMultiplier(ps.streak)
+            const base = calculateScore(q.points, a.time_taken_ms || 5000, q.time_limit * 1000, true)
+            ps.score += Math.round(base * mult)
+          } else {
+            ps.streak = 0
+          }
+          reconciledScores.set(a.participant_id, ps)
+        }
+      }
+
+      finalScores = reconciledScores
+
+      finalLb = Array.from(players.entries())
+        .filter(([, p]) => p.id)
+        .map(([, p]) => {
+          const id = p.id!
+          const s = reconciledScores.get(id)
+          return { id, nickname: p.nickname, score: s?.score || 0, delta: 0 }
+        })
+        .sort((a, b) => b.score - a.score)
+
+      setScores(reconciledScores)
+      setLeaderboard(finalLb)
+    }
+
+    // Write reconciled scores to DB
+    const scoreWrites = Array.from(finalScores).map(([id, s]) =>
       supabase.from('participants').update({
         total_score: s.score,
         total_correct: s.streak,
       }).eq('id', id)
     )
 
-    const rankWrites = leaderboard.map((entry, i) =>
+    const rankWrites = finalLb.map((entry, i) =>
       supabase.from('participants').update({ rank: i + 1 }).eq('id', entry.id)
     )
 
     await Promise.all([...scoreWrites, ...rankWrites])
 
-    // THEN set completed — this triggers player podium via Postgres Changes
+    // THEN set completed — triggers player podium via Postgres Changes
     await supabase.from('sessions').update({
       status: 'completed',
       ended_at: new Date().toISOString(),
@@ -376,10 +426,11 @@ export function HostGame({
 
     supabase.rpc('increment_play_count', { quiz_id_input: session.quiz_id }).then(() => {})
 
+    // Broadcast FULL leaderboard so players get scores instantly (no DB race)
     channelRef.current?.send({
       type: 'broadcast',
       event: 'game:podium',
-      payload: { podium: leaderboard.slice(0, 3) },
+      payload: { podium: finalLb },
     })
   }
 
@@ -429,14 +480,14 @@ export function HostGame({
 
   if (phase === 'leaderboard') return (
     <LeaderboardScreen
-      leaderboard={leaderboard.slice(0, 5)}
+      leaderboard={leaderboard.slice(0, 10)}
       onNext={nextQuestion}
       isLast={currentIndex >= questions.length - 1}
     />
   )
 
   if (phase === 'podium') return (
-    <PodiumScreen podium={leaderboard.slice(0, 3)} quizTitle={quizTitle} />
+    <PodiumScreen podium={leaderboard.slice(0, 3)} fullLeaderboard={leaderboard.slice(0, 10)} quizTitle={quizTitle} />
   )
 
   return null
@@ -1330,9 +1381,11 @@ function LeaderboardScreen({
 
 function PodiumScreen({
   podium,
+  fullLeaderboard,
   quizTitle,
 }: {
   podium: { id: string; nickname: string; score: number }[]
+  fullLeaderboard: { id: string; nickname: string; score: number }[]
   quizTitle: string
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1472,9 +1525,26 @@ function PodiumScreen({
         ))}
       </div>
 
+      {/* Remaining leaderboard (positions 4+) */}
+      {fullLeaderboard.length > 3 && (
+        <div className="w-full max-w-md px-6 mt-6 z-10 space-y-2">
+          {fullLeaderboard.slice(3).map((entry, i) => (
+            <div
+              key={entry.id}
+              className="flex items-center gap-3 rounded-lg px-4 py-2 animate-podium-name"
+              style={{ background: 'rgba(255,255,255,0.08)', animationDelay: `${1.5 + i * 0.15}s` }}
+            >
+              <span className="text-white/50 font-bold text-sm w-6 text-center">{i + 4}</span>
+              <span className="flex-1 text-white font-bold text-sm">{entry.nickname}</span>
+              <span className="text-white/70 font-bold text-sm tabular-nums">{entry.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <a
         href="/library"
-        className="mt-12 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg flex items-center hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg z-10"
+        className="mt-8 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg flex items-center hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg z-10"
       >
         Back to Library
       </a>
