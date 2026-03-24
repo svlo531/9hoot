@@ -344,7 +344,6 @@ export function HostGame({
   }
 
   async function showLeaderboard() {
-    setPhase('leaderboard')
     audio.play('leaderboardReveal')
 
     // Mid-game reconciliation: re-score from DB to catch late answers
@@ -403,6 +402,9 @@ export function HostGame({
         payload: { leaderboard: leaderboard.slice(0, 10) },
       })
     }
+
+    // Set phase AFTER reconciliation so leaderboard renders with correct data
+    setPhase('leaderboard')
   }
 
   function nextQuestion() {
@@ -1051,6 +1053,20 @@ function ResultsScreen({
   const [brainstormVotingDone, setBrainstormVotingDone] = useState(false)
   const brainstormVoteTimerRef = useRef<NodeJS.Timeout | null>(null)
   const brainstormVotersRef = useRef<Set<string>>(new Set())
+  const brainstormIdeasRef = useRef<string[]>([])
+
+  // Re-broadcast voting state every 3s so players who missed the first broadcast can catch up
+  useEffect(() => {
+    if (!brainstormVotingActive || brainstormVotingDone) return
+    const interval = setInterval(() => {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:brainstorm_vote',
+        payload: { ideas: brainstormIdeasRef.current },
+      })
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [brainstormVotingActive, brainstormVotingDone])
 
   useEffect(() => {
     const t = setTimeout(() => setBarsVisible(true), 100)
@@ -1116,6 +1132,7 @@ function ResultsScreen({
     }
 
     const allIdeas = Array.from(ideasSet)
+    brainstormIdeasRef.current = allIdeas
 
     // Initialize vote counts
     const initialVotes = new Map<string, number>()
