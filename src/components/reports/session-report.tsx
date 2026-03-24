@@ -2,6 +2,7 @@
 
 import { useState, useMemo, Fragment } from 'react'
 import Link from 'next/link'
+import * as XLSX from 'xlsx'
 import type { QuestionType } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 
@@ -196,6 +197,175 @@ export function SessionReport({ session, quiz, questions, participants, answers 
     return { score, detractors, passives, promoters, total }
   }, [questions, answersByQuestion])
 
+  // Knowledge gap analysis (scored questions only)
+  const knowledgeGaps = useMemo(() => {
+    const scored = questions.filter(
+      (q) => !NON_SCORED_TYPES.includes(q.type as QuestionType)
+    )
+    if (scored.length === 0) return []
+
+    return scored
+      .map((q, _) => {
+        const qid = q.id as string
+        const type = q.type as QuestionType
+        const qAnswers = answersByQuestion[qid] || []
+        if (qAnswers.length === 0) return null
+
+        const correctCount = qAnswers.filter((a) => a.is_correct === true).length
+        const correctRate = Math.round((correctCount / qAnswers.length) * 100)
+        const sortOrder = q.sort_order as number
+
+        // Find most common wrong answer
+        let commonWrong = ''
+        if (type === 'quiz') {
+          const options = (q.options as { text: string }[]) || []
+          const correctIndices = (q.correct_answers as number[]) || []
+          const wrongCounts: Record<number, number> = {}
+          for (const a of qAnswers) {
+            if (a.is_correct) continue
+            const data = a.answer_data as Record<string, unknown>
+            const selected = (data?.selectedIndices as number[]) || []
+            for (const i of selected) {
+              if (!correctIndices.includes(i)) wrongCounts[i] = (wrongCounts[i] || 0) + 1
+            }
+          }
+          const topWrong = Object.entries(wrongCounts).sort((a, b) => b[1] - a[1])[0]
+          if (topWrong) {
+            const idx = parseInt(topWrong[0])
+            commonWrong = options[idx]?.text || ''
+          }
+        } else if (type === 'true_false') {
+          const correctVal = (q.correct_answers as boolean[])?.[0]
+          commonWrong = correctVal ? 'False' : 'True'
+        }
+
+        const difficulty = correctRate >= 70 ? 'Easy' : correctRate >= 40 ? 'Medium' : 'Hard'
+
+        return {
+          questionNum: sortOrder + 1,
+          text: (q.question_text as string) || '(No text)',
+          type,
+          correctRate,
+          responses: qAnswers.length,
+          commonWrong,
+          difficulty,
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => a!.correctRate - b!.correctRate) as {
+      questionNum: number
+      text: string
+      type: QuestionType
+      correctRate: number
+      responses: number
+      commonWrong: string
+      difficulty: string
+    }[]
+  }, [questions, answersByQuestion])
+
+  // ---------- Export helpers ----------
+
+  function buildSummarySheet() {
+    return [
+      ['9Hoot! Session Report'],
+      [],
+      ['Quiz', (quiz?.title as string) || 'Untitled'],
+      ['Date', fmtDate(session.started_at as string | null)],
+      ['PIN', (session.pin as string) || '-'],
+      [],
+      ['Summary'],
+      ['Total Players', totalPlayers],
+      ['Average Score', avgScore],
+      ['Completion Rate', `${completionRate}%`],
+      ['Total Questions', totalQuestions],
+      ...(npsData ? [[], ['NPS Score', npsData.score], ['Promoters', npsData.promoters], ['Passives', npsData.passives], ['Detractors', npsData.detractors]] : []),
+    ]
+  }
+
+  function buildQuestionSheet() {
+    const rows: (string | number)[][] = [
+      ['#', 'Question', 'Type', 'Correct %', 'Responses', 'Avg Time (s)'],
+    ]
+    for (const [idx, q] of questions.entries()) {
+      const qid = q.id as string
+      const type = q.type as QuestionType
+      const qAnswers = answersByQuestion[qid] || []
+      const isNonScored = NON_SCORED_TYPES.includes(type)
+      const correctCount = qAnswers.filter((a) => a.is_correct === true).length
+      const correctRate = qAnswers.length > 0 ? Math.round((correctCount / qAnswers.length) * 100) : 0
+      const times = qAnswers.map((a) => a.time_taken_ms as number | null).filter((t): t is number => t != null)
+      const avgT = times.length > 0 ? +(times.reduce((s, t) => s + t, 0) / times.length / 1000).toFixed(1) : ''
+
+      rows.push([
+        idx + 1,
+        (q.question_text as string) || '',
+        TYPE_LABELS[type] || type,
+        isNonScored ? 'N/A' : `${correctRate}%`,
+        qAnswers.length,
+        avgT,
+      ])
+    }
+    return rows
+  }
+
+  function buildParticipantSheet() {
+    const rows: (string | number)[][] = [
+      ['Rank', 'Nickname', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
+    ]
+    for (const p of sortedParticipants) {
+      rows.push([
+        p.rank,
+        p.nickname,
+        p.score,
+        p.correct,
+        p.incorrect,
+        p.avgTime != null ? +(p.avgTime / 1000).toFixed(1) : '',
+      ])
+    }
+    return rows
+  }
+
+  function exportCSV() {
+    const rows = [
+      ['Rank', 'Nickname', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
+      ...sortedParticipants.map((p) => [
+        p.rank,
+        p.nickname,
+        p.score,
+        p.correct,
+        p.incorrect,
+        p.avgTime != null ? (p.avgTime / 1000).toFixed(1) : '',
+      ]),
+    ]
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    downloadFile(csv, `${(quiz?.title as string) || 'report'}-participants.csv`, 'text/csv')
+  }
+
+  function exportExcel() {
+    const wb = XLSX.utils.book_new()
+
+    const summaryWs = XLSX.utils.aoa_to_sheet(buildSummarySheet())
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary')
+
+    const questionWs = XLSX.utils.aoa_to_sheet(buildQuestionSheet())
+    XLSX.utils.book_append_sheet(wb, questionWs, 'Per Question')
+
+    const participantWs = XLSX.utils.aoa_to_sheet(buildParticipantSheet())
+    XLSX.utils.book_append_sheet(wb, participantWs, 'Per Participant')
+
+    XLSX.writeFile(wb, `${(quiz?.title as string) || 'report'}.xlsx`)
+  }
+
+  function downloadFile(content: string, filename: string, type: string) {
+    const blob = new Blob([content], { type })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // Sorted participant table
   const sortedParticipants = useMemo(() => {
     const list = participants.map((p, idx) => {
@@ -368,6 +538,56 @@ export function SessionReport({ session, quiz, questions, participants, answers 
                   </div>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Knowledge Gap Analysis */}
+        {knowledgeGaps.length > 0 && (
+          <div className="bg-white rounded-lg border border-mid-gray p-4">
+            <h3 className="text-sm font-bold text-gray-text uppercase tracking-wide mb-3">Knowledge Gaps</h3>
+            <p className="text-xs text-gray-text mb-4">Questions ranked by difficulty - lowest correct rate first</p>
+            <div className="space-y-3">
+              {knowledgeGaps.map((gap) => (
+                <div key={gap.questionNum} className="flex items-start gap-3">
+                  <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                    <span className="text-sm font-bold text-gray-text">Q{gap.questionNum}</span>
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        gap.difficulty === 'Hard'
+                          ? 'bg-answer-red/15 text-answer-red'
+                          : gap.difficulty === 'Medium'
+                          ? 'bg-yellow-accent/15 text-yellow-accent'
+                          : 'bg-correct-green/15 text-correct-green'
+                      }`}
+                    >
+                      {gap.difficulty}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-dark-text truncate">{gap.text}</div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-16 h-2 bg-light-gray rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              gap.correctRate >= 70 ? 'bg-correct-green' : gap.correctRate >= 40 ? 'bg-yellow-accent' : 'bg-answer-red'
+                            }`}
+                            style={{ width: `${gap.correctRate}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-bold text-dark-text">{gap.correctRate}%</span>
+                      </div>
+                      <span className="text-xs text-gray-text">{gap.responses} responses</span>
+                      {gap.commonWrong && (
+                        <span className="text-xs text-answer-red">
+                          Common wrong: {gap.commonWrong}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -900,13 +1120,31 @@ export function SessionReport({ session, quiz, questions, participants, answers 
         >
           <span>&larr;</span> All Reports
         </Link>
-        <h1 className="text-xl font-bold text-dark-text">
-          {(quiz?.title as string) || 'Untitled Quiz'}
-        </h1>
-        <div className="flex items-center gap-3 text-sm text-gray-text mt-1 flex-wrap">
-          <span>{fmtDate(session.started_at as string | null)}</span>
-          <span className="text-mid-gray">|</span>
-          <span>PIN: {(session.pin as string) || '-'}</span>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold text-dark-text">
+              {(quiz?.title as string) || 'Untitled Quiz'}
+            </h1>
+            <div className="flex items-center gap-3 text-sm text-gray-text mt-1 flex-wrap">
+              <span>{fmtDate(session.started_at as string | null)}</span>
+              <span className="text-mid-gray">|</span>
+              <span>PIN: {(session.pin as string) || '-'}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={exportCSV}
+              className="h-9 px-3 text-sm font-bold text-blue-cta border border-blue-cta rounded-lg hover:bg-blue-cta/10 transition-colors"
+            >
+              CSV
+            </button>
+            <button
+              onClick={exportExcel}
+              className="h-9 px-3 text-sm font-bold text-white bg-blue-cta rounded-lg hover:bg-blue-cta/90 transition-colors"
+            >
+              Excel
+            </button>
+          </div>
         </div>
       </div>
 

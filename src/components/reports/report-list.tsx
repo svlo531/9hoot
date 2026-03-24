@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ReportEntry } from '@/app/(dashboard)/reports/page'
 
@@ -32,10 +33,32 @@ function toDateInputValue(date: Date): string {
 }
 
 export function ReportList({ reports }: { reports: ReportEntry[] }) {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete(sessionId: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (confirmDelete !== sessionId) {
+      setConfirmDelete(sessionId)
+      return
+    }
+
+    setDeleting(true)
+    const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+    setDeleting(false)
+    setConfirmDelete(null)
+
+    if (res.ok) {
+      router.refresh()
+    }
+  }
 
   // Filter by search + date range
   const filtered = reports.filter(r => {
@@ -165,9 +188,24 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                         <h3 className="font-bold text-dark-text text-sm truncate">{r.quizTitle}</h3>
                         <p className="text-gray-text text-xs mt-0.5">PIN: {r.pin}</p>
                       </div>
-                      <span className="text-gray-text text-xs whitespace-nowrap flex-shrink-0 hidden sm:block">
-                        {formatDate(r.date)}
-                      </span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-gray-text text-xs whitespace-nowrap hidden sm:block">
+                          {formatDate(r.date)}
+                        </span>
+                        <button
+                          onClick={(e) => handleDelete(r.sessionId, e)}
+                          onMouseLeave={() => confirmDelete === r.sessionId && setConfirmDelete(null)}
+                          disabled={deleting}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            confirmDelete === r.sessionId
+                              ? 'bg-red-600 text-white font-bold'
+                              : 'text-gray-text hover:text-red-600 hover:bg-red-50'
+                          }`}
+                          title="Delete report"
+                        >
+                          {confirmDelete === r.sessionId ? (deleting ? '...' : 'Confirm?') : '✕'}
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3 mt-2 text-xs text-gray-text">
                       <span className="sm:hidden">{formatShortDate(r.date)}</span>
@@ -231,7 +269,22 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm text-dark-text font-medium truncate">PIN: {r.pin}</p>
-                            <span className="text-xs text-gray-text whitespace-nowrap">{formatDate(r.date)}</span>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-gray-text whitespace-nowrap">{formatDate(r.date)}</span>
+                              <button
+                                onClick={(e) => handleDelete(r.sessionId, e)}
+                                onMouseLeave={() => confirmDelete === r.sessionId && setConfirmDelete(null)}
+                                disabled={deleting}
+                                className={`text-xs px-2 py-1 rounded transition-colors ${
+                                  confirmDelete === r.sessionId
+                                    ? 'bg-red-600 text-white font-bold'
+                                    : 'text-gray-text hover:text-red-600 hover:bg-red-50'
+                                }`}
+                                title="Delete report"
+                              >
+                                {confirmDelete === r.sessionId ? (deleting ? '...' : 'Confirm?') : '✕'}
+                              </button>
+                            </div>
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-gray-text">
                             <span>{r.participantCount} {r.participantCount === 1 ? 'player' : 'players'}</span>
