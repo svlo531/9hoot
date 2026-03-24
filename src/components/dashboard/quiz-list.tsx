@@ -52,10 +52,10 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
         return (
           <div
             key={quiz.id}
-            className="bg-white rounded-lg border border-mid-gray overflow-hidden hover:shadow-md transition-shadow"
+            className="bg-white rounded-lg border border-mid-gray hover:shadow-md transition-shadow"
           >
             {/* Cover image */}
-            <div className="h-32 bg-gradient-to-br from-purple-primary to-blue-cta flex items-center justify-center relative">
+            <div className="h-32 bg-gradient-to-br from-purple-primary to-blue-cta flex items-center justify-center relative rounded-t-lg overflow-hidden">
               {quiz.cover_image_url ? (
                 <img src={quiz.cover_image_url} alt="" className="w-full h-full object-cover" />
               ) : (
