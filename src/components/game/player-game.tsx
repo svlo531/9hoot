@@ -51,10 +51,12 @@ export function PlayerGame({ pin }: { pin: string }) {
   const sessionIdRef = useRef<string | null>(null)
   const participantIdRef = useRef<string | null>(null)
   const nicknameRef = useRef('')
+  const questionRef = useRef<QuestionData | null>(null)
   phaseRef.current = phase
   sessionIdRef.current = sessionId
   participantIdRef.current = participantId
   nicknameRef.current = nickname
+  questionRef.current = question
 
   // =================================================================
   // PODIUM TRANSITION — called by multiple detection mechanisms
@@ -145,15 +147,23 @@ export function PlayerGame({ pin }: { pin: string }) {
         // Polling backup for answer lock (in case Postgres Changes missed it)
         if (session.status === 'reviewing' && !answerLockedRef.current && phaseRef.current === 'question') {
           answerLockedRef.current = true
-          setStreak(0)
-          audio.play('timesUp')
-          setIsCorrect(false)
-          setPointsAwarded(0)
-          setPhase('timeUp')
-          setTimeout(() => {
-            if (podiumTriggeredRef.current) return
-            fetchRankAndShow()
-          }, 2500)
+          if (questionRef.current?.type === 'content_slide') {
+            // Content slides have no answer - skip time's up, go straight to ranking
+            setTimeout(() => {
+              if (podiumTriggeredRef.current) return
+              fetchRankAndShow()
+            }, 500)
+          } else {
+            setStreak(0)
+            audio.play('timesUp')
+            setIsCorrect(false)
+            setPointsAwarded(0)
+            setPhase('timeUp')
+            setTimeout(() => {
+              if (podiumTriggeredRef.current) return
+              fetchRankAndShow()
+            }, 2500)
+          }
         }
 
         if (
@@ -196,15 +206,23 @@ export function PlayerGame({ pin }: { pin: string }) {
           if (newStatus === 'reviewing') {
             if (!answerLockedRef.current && phaseRef.current === 'question') {
               answerLockedRef.current = true
-              setStreak(0)
-              audio.play('timesUp')
-              setIsCorrect(false)
-              setPointsAwarded(0)
-              setPhase('timeUp')
-              setTimeout(() => {
-                if (podiumTriggeredRef.current) return
-                fetchRankAndShow()
-              }, 2500)
+              if (questionRef.current?.type === 'content_slide') {
+                // Content slides have no answer - skip time's up, go straight to ranking
+                setTimeout(() => {
+                  if (podiumTriggeredRef.current) return
+                  fetchRankAndShow()
+                }, 500)
+              } else {
+                setStreak(0)
+                audio.play('timesUp')
+                setIsCorrect(false)
+                setPointsAwarded(0)
+                setPhase('timeUp')
+                setTimeout(() => {
+                  if (podiumTriggeredRef.current) return
+                  fetchRankAndShow()
+                }, 2500)
+              }
             } else {
               // Player already answered — just ensure locked
               answerLockedRef.current = true
@@ -274,15 +292,23 @@ export function PlayerGame({ pin }: { pin: string }) {
         if (answerLockedRef.current) return
         answerLockedRef.current = true
         if (phaseRef.current === 'question') {
-          setStreak(0)
-          audio.play('timesUp')
-          setIsCorrect(false)
-          setPointsAwarded(0)
-          setPhase('timeUp')
-          setTimeout(() => {
-            if (podiumTriggeredRef.current) return
-            fetchRankAndShow()
-          }, 2500)
+          if (questionRef.current?.type === 'content_slide') {
+            // Content slides have no answer - skip time's up, go straight to ranking
+            setTimeout(() => {
+              if (podiumTriggeredRef.current) return
+              fetchRankAndShow()
+            }, 500)
+          } else {
+            setStreak(0)
+            audio.play('timesUp')
+            setIsCorrect(false)
+            setPointsAwarded(0)
+            setPhase('timeUp')
+            setTimeout(() => {
+              if (podiumTriggeredRef.current) return
+              fetchRankAndShow()
+            }, 2500)
+          }
         }
       })
       .on('broadcast', { event: 'game:podium' }, (payload: { payload?: { podium?: { id: string; nickname: string; score: number }[] } }) => {
@@ -395,7 +421,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     setPhase('answerFill')
 
     const timeTakenMs = Date.now() - questionStartRef.current
-    const isNonScoredType = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(question.type)
+    const isNonScoredType = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(question.type)
     const correct = checkAnswer(question.type, answerData, question.correctAnswers)
     setIsCorrect(correct)
 
@@ -552,11 +578,24 @@ export function PlayerGame({ pin }: { pin: string }) {
     if (question.type === 'word_cloud') {
       return <WordCloudInput question={question} onSubmit={submitAnswer} />
     }
+    if (question.type === 'brainstorm') {
+      return <BrainstormInput question={question} onSubmit={(data) => submitAnswer(data, 0)} />
+    }
+    if (question.type === 'content_slide') {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: '#1a1a2e' }}>
+          <ContentSlideView />
+        </div>
+      )
+    }
+    if (question.type === 'image_reveal') {
+      return <ImageRevealInput question={question} onSubmit={(data) => submitAnswer(data, 0)} />
+    }
     return (<div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a2e' }}><p className="text-white text-center">{question.type.replace('_', ' ')} — answer on host screen</p></div>)
   }
 
   if (phase === 'answerFill') {
-    const specialType = question && ['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type)
+    const specialType = question && ['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud', 'brainstorm', 'image_reveal'].includes(question.type)
     const shape = !specialType && selectedIndex !== null ? ANSWER_SHAPES[selectedIndex] : null
     const fillColor = specialType
       ? (question?.type === 'nps_survey'
@@ -564,10 +603,12 @@ export function PlayerGame({ pin }: { pin: string }) {
         : question?.type === 'slider' ? '#1368CE'
         : question?.type === 'puzzle' ? '#D89E00'
         : question?.type === 'word_cloud' ? '#0AA3CF'
+        : question?.type === 'brainstorm' ? '#D89E00'
+        : question?.type === 'image_reveal' ? '#1368CE'
         : '#46178F')
       : (shape?.color || '#333')
     const fillSymbol = specialType
-      ? (question?.type === 'type_answer' ? '⌨️' : question?.type === 'nps_survey' ? `${selectedIndex}` : question?.type === 'slider' ? '🎚️' : question?.type === 'puzzle' ? '🧩' : question?.type === 'word_cloud' ? '☁️' : '💬')
+      ? (question?.type === 'type_answer' ? '⌨️' : question?.type === 'nps_survey' ? `${selectedIndex}` : question?.type === 'slider' ? '🎚️' : question?.type === 'puzzle' ? '🧩' : question?.type === 'word_cloud' ? '☁️' : question?.type === 'brainstorm' ? '💡' : question?.type === 'image_reveal' ? '🖼️' : '💬')
       : (shape?.symbol || '●')
     return (
       <div className="min-h-screen flex items-center justify-center animate-fill-expand" style={{ backgroundColor: fillColor }}>
@@ -595,7 +636,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   )
 
   if (phase === 'result') {
-    const isNonScored = question && ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(question.type)
+    const isNonScored = question && ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(question.type)
 
     if (isNonScored) return (
       <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
@@ -1055,6 +1096,84 @@ function WordCloudInput({
             </button>
           </div>
         </form>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── BRAINSTORM INPUT ──────────────────────────────────
+
+function BrainstormInput({ question, onSubmit }: { question: QuestionData; onSubmit: (data: Record<string, unknown>) => void }) {
+  const [text, setText] = useState('')
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-md mx-auto px-4">
+        <p className="text-white/60 text-sm text-center mb-3">💡 Share your idea</p>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Type your idea..."
+          maxLength={100}
+          autoFocus
+          className="w-full h-14 px-4 rounded-xl text-dark-text text-lg bg-white shadow-lg focus:outline-none"
+        />
+        <button
+          onClick={() => { if (text.trim()) onSubmit({ text: text.trim() }) }}
+          disabled={!text.trim()}
+          className="w-full h-14 mt-3 rounded-xl bg-purple-primary text-white font-bold text-lg shadow-lg disabled:opacity-40 transition-all active:scale-95"
+        >
+          Submit Idea
+        </button>
+      </div>
+      <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── CONTENT SLIDE VIEW ──────────────────────────────────
+
+function ContentSlideView() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4">
+      <div className="text-6xl">📺</div>
+      <p className="text-white font-bold text-xl">Look at the screen!</p>
+      <p className="text-white/40 text-sm">The host is showing information</p>
+    </div>
+  )
+}
+
+// ── IMAGE REVEAL INPUT ──────────────────────────────────
+
+function ImageRevealInput({ question, onSubmit }: { question: QuestionData; onSubmit: (data: Record<string, unknown>) => void }) {
+  const [text, setText] = useState('')
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
+      <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
+        {question.index + 1} of {question.totalQuestions}
+      </div>
+      <div className="w-full max-w-md mx-auto px-4">
+        <p className="text-white/60 text-sm text-center mb-3">🖼️ What is in the image?</p>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Type your guess..."
+          maxLength={30}
+          autoFocus
+          className="w-full h-14 px-4 rounded-xl text-dark-text text-lg bg-white shadow-lg focus:outline-none"
+        />
+        <button
+          onClick={() => { if (text.trim()) onSubmit({ text: text.trim() }) }}
+          disabled={!text.trim()}
+          className="w-full h-14 mt-3 rounded-xl bg-purple-primary text-white font-bold text-lg shadow-lg disabled:opacity-40 transition-all active:scale-95"
+        >
+          Submit Guess
+        </button>
       </div>
       <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
     </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { GameSession, Question } from '@/lib/types'
+import type { GameSession, Question, ContentSlideOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 import { calculateScore, getStreakMultiplier, checkAnswer } from '@/lib/game-utils'
 import { useGameAudio } from '@/lib/use-game-audio'
@@ -260,6 +260,10 @@ export function HostGame({
 
   const handleShowResults = useCallback(() => {
     if (!currentQuestion) return
+    if (currentQuestion.type === 'content_slide') {
+      nextQuestion()
+      return
+    }
     setPhase('results')
 
     // Lock answers in DB — Postgres Changes pushes this to players instantly
@@ -267,7 +271,7 @@ export function HostGame({
 
     const newScores = new Map(scores)
     const deltas = new Map<string, number>()
-    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(currentQuestion.type)
+    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(currentQuestion.type)
 
     // Non-scored types don't affect scores or streaks
     if (!isNonScored) {
@@ -348,7 +352,7 @@ export function HostGame({
 
       for (let qi = 0; qi <= currentIndex; qi++) {
         const q = questions[qi]
-        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(q.type)
+        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
         if (isNonScored) continue
 
         const qAnswers = allAnswers.filter((a: { question_id: string }) => a.question_id === q.id)
@@ -424,7 +428,7 @@ export function HostGame({
 
       // Re-score all questions in order from DB answers
       for (const q of questions) {
-        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(q.type)
+        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
         if (isNonScored) continue
 
         const qAnswers = allAnswers.filter((a: { question_id: string }) => a.question_id === q.id)
@@ -518,11 +522,12 @@ export function HostGame({
       timeLeft={timeLeft}
       answerCount={answers.length}
       playerCount={players.size}
+      onSkip={() => nextQuestion()}
     />
   )
 
   if (phase === 'results' && currentQuestion) {
-    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(currentQuestion.type)
+    const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(currentQuestion.type)
     return (
       <ResultsScreen
         question={currentQuestion}
@@ -760,6 +765,7 @@ function QuestionScreen({
   timeLeft,
   answerCount,
   playerCount,
+  onSkip,
 }: {
   question: Question
   index: number
@@ -767,8 +773,33 @@ function QuestionScreen({
   timeLeft: number
   answerCount: number
   playerCount: number
+  onSkip: () => void
 }) {
   const options = (question.options as { text: string }[]) || []
+
+  // Image reveal tile state — hooks must be at component level
+  const [revealedTiles, setRevealedTiles] = useState<Set<number>>(new Set())
+  const tileCount = 16
+  const tileInterval = (question.time_limit * 1000) / tileCount
+
+  useEffect(() => {
+    if (question.type !== 'image_reveal') return
+    setRevealedTiles(new Set())
+    let currentTile = 0
+    const timer = setInterval(() => {
+      if (currentTile >= tileCount) {
+        clearInterval(timer)
+        return
+      }
+      setRevealedTiles((prev) => {
+        const next = new Set(prev)
+        next.add(currentTile)
+        return next
+      })
+      currentTile++
+    }, tileInterval)
+    return () => clearInterval(timer)
+  }, [question.id, question.type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen flex flex-col animate-question-enter" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
@@ -789,8 +820,8 @@ function QuestionScreen({
         </div>
       </div>
 
-      {/* Media */}
-      {question.media_url && (
+      {/* Media (hidden for image_reveal — it renders its own tiled image) */}
+      {question.media_url && question.type !== 'image_reveal' && (
         <div className="flex justify-center px-8 mb-4">
           <img src={question.media_url} alt="" className="max-h-48 rounded-lg shadow-lg" />
         </div>
@@ -878,8 +909,70 @@ function QuestionScreen({
         </div>
       )}
 
+      {question.type === 'brainstorm' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center animate-answer-slide">
+            <div className="text-5xl mb-4">💡</div>
+            <p className="text-white font-bold text-xl">Share your ideas!</p>
+            <p className="text-white/40 text-sm mt-2">{answerCount} of {playerCount} responded</p>
+          </div>
+        </div>
+      )}
+
+      {question.type === 'content_slide' && (() => {
+        const slideOpts = question.options as ContentSlideOptions | null
+        return (
+          <div className="flex-1 flex flex-col items-center justify-center px-8 pb-6 animate-answer-slide">
+            <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-12 py-8 text-center max-w-2xl w-full">
+              {slideOpts?.title && (
+                <h3 className="text-white font-bold text-3xl mb-4">{slideOpts.title}</h3>
+              )}
+              {slideOpts?.body && (
+                <p className="text-white/80 text-lg leading-relaxed whitespace-pre-wrap">{slideOpts.body}</p>
+              )}
+            </div>
+            <button
+              onClick={onSkip}
+              className="mt-6 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
+            >
+              Next →
+            </button>
+          </div>
+        )
+      })()}
+
+      {question.type === 'image_reveal' && (
+        <div className="flex-1 flex items-center justify-center px-8 pb-6 animate-answer-slide">
+          <div className="relative w-full max-w-lg aspect-video rounded-2xl overflow-hidden shadow-lg">
+            {question.media_url && (
+              <img src={question.media_url} alt="" className="w-full h-full object-cover" />
+            )}
+            {Array.from({ length: tileCount }, (_, i) => {
+              const row = Math.floor(i / 4)
+              const col = i % 4
+              const color = ANSWER_SHAPES[i % ANSWER_SHAPES.length].color
+              if (revealedTiles.has(i)) return null
+              return (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: `${row * 25}%`,
+                    left: `${col * 25}%`,
+                    width: '25%',
+                    height: '25%',
+                    backgroundColor: color,
+                    transition: 'opacity 0.3s ease-out',
+                  }}
+                />
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Standard answer options (quiz, true_false, poll) */}
-      {options.length > 0 && !['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type) && (
+      {options.length > 0 && !['type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud', 'brainstorm', 'content_slide', 'image_reveal'].includes(question.type) && (
         <div className="flex-1 px-8 pb-6">
           <div className={`grid gap-3 h-full ${options.length <= 2 ? 'grid-cols-2' : options.length <= 4 ? 'grid-cols-2 grid-rows-2' : 'grid-cols-3 grid-rows-2'}`}>
             {options.map((opt, i) => {
@@ -1243,6 +1336,97 @@ function ResultsScreen({
         </div>
 
         <style jsx>{`@keyframes cloud-word { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } } .animate-cloud-word { animation: cloud-word 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+      </div>
+    )
+  }
+
+  // Brainstorm results — idea wall (same pattern as open_ended)
+  if (question.type === 'brainstorm') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 px-8 pb-4 overflow-y-auto">
+          <p className="text-white/50 text-sm text-center mb-4">{answers.length} idea{answers.length !== 1 ? 's' : ''}</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-4xl mx-auto">
+            {answers.map((a, i) => (
+              <div
+                key={i}
+                className="bg-white/10 backdrop-blur-sm rounded-lg p-4 animate-response-card"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <p className="text-white text-sm leading-relaxed">{(a.answerData.text as string) || ''}</p>
+                <p className="text-white/30 text-xs mt-2">{a.nickname}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6 flex-shrink-0">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
+      </div>
+    )
+  }
+
+  // Image Reveal results — show full image + correct/incorrect bars (same pattern as type_answer)
+  if (question.type === 'image_reveal') {
+    const accepted = (question.correct_answers as { text: string }[]) || []
+    const correctCount = answers.filter((a) => checkAnswer('type_answer', a.answerData, question.correct_answers)).length
+    const incorrectCount = answers.length - correctCount
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="px-8 py-4 mt-4">
+          <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+            <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          {/* Fully revealed image */}
+          {question.media_url && (
+            <div className="mb-6">
+              <img src={question.media_url} alt="" className="max-h-48 rounded-lg shadow-lg" />
+            </div>
+          )}
+
+          {/* Correct answers reveal */}
+          <div className="mb-6">
+            <p className="text-white/60 text-sm text-center mb-3 font-bold">Correct answer{accepted.length > 1 ? 's' : ''}</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {accepted.map((a, i) => (
+                <div key={i} className="bg-correct-green rounded-lg px-6 py-3 shadow-lg animate-results-check">
+                  <span className="text-white font-bold text-xl">{a.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Correct/Incorrect bars */}
+          <div className="flex items-end gap-12">
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{correctCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#26890C', height: barsVisible ? `${Math.max((correctCount / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms' }} />
+              <span className="text-correct-green font-bold text-sm">Correct</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <div className={`text-white font-bold text-2xl transition-opacity duration-500 ${barsVisible ? 'opacity-100' : 'opacity-0'}`}>{incorrectCount}</div>
+              <div className="w-28 rounded-t-lg transition-all ease-out" style={{ backgroundColor: '#E21B3C', height: barsVisible ? `${Math.max((incorrectCount / Math.max(answers.length, 1)) * 150, 8)}px` : '4px', transitionDuration: '700ms', transitionDelay: '100ms' }} />
+              <span className="text-answer-red font-bold text-sm">Incorrect</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end px-8 pb-6">
+          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        </div>
+        <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
       </div>
     )
   }

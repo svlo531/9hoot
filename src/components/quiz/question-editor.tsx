@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Question, QuizOption, SliderOptions } from '@/lib/types'
+import type { Question, QuizOption, SliderOptions, ContentSlideOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 
 export function QuestionEditor({
@@ -54,11 +54,14 @@ export function QuestionEditor({
       {question.type === 'word_cloud' && (
         <WordCloudEditor />
       )}
-      {/* Other types show a placeholder for now */}
-      {!['quiz', 'true_false', 'poll', 'type_answer', 'open_ended', 'nps_survey', 'slider', 'puzzle', 'word_cloud'].includes(question.type) && (
-        <div className="bg-white rounded-lg border border-mid-gray p-6 text-center text-gray-text text-sm">
-          {question.type.replace('_', ' ')} editor — coming soon
-        </div>
+      {question.type === 'brainstorm' && (
+        <BrainstormEditor />
+      )}
+      {question.type === 'content_slide' && (
+        <ContentSlideEditor question={question} onUpdate={onUpdate} />
+      )}
+      {question.type === 'image_reveal' && (
+        <ImageRevealEditor question={question} onUpdate={onUpdate} />
       )}
     </div>
   )
@@ -545,6 +548,123 @@ function WordCloudEditor() {
       <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
         <p className="text-xs text-gray-text italic">Responses are aggregated into an animated word cloud on the host screen. More popular words appear larger. No points awarded.</p>
       </div>
+    </div>
+  )
+}
+
+function BrainstormEditor() {
+  return (
+    <div className="bg-white rounded-lg border border-mid-gray p-6">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">💡</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Brainstorm</p>
+          <p className="text-xs text-gray-text">Players submit ideas (up to 100 characters each)</p>
+        </div>
+      </div>
+      <div className="bg-light-gray rounded-lg p-4 border border-border-gray">
+        <p className="text-xs text-gray-text italic">Ideas are displayed as cards on the host screen. No points awarded.</p>
+      </div>
+    </div>
+  )
+}
+
+function ContentSlideEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const opts = (question.options as ContentSlideOptions | null) || { title: '', body: '', layout: 'center' }
+
+  function update(patch: Partial<ContentSlideOptions>) {
+    onUpdate({ ...question, options: { ...opts, ...patch } as unknown as null })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">📄</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Content Slide</p>
+          <p className="text-xs text-gray-text">Display information to players. No answers collected.</p>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-bold text-dark-text mb-1">Slide title</label>
+        <input
+          type="text"
+          value={opts.title}
+          onChange={(e) => update({ title: e.target.value })}
+          placeholder="Enter slide title..."
+          className="w-full h-10 px-3 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-bold text-dark-text mb-1">Body text</label>
+        <textarea
+          value={opts.body}
+          onChange={(e) => update({ body: e.target.value })}
+          placeholder="Enter slide content..."
+          rows={4}
+          className="w-full px-3 py-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta resize-none"
+        />
+      </div>
+    </div>
+  )
+}
+
+function ImageRevealEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const answers = (question.correct_answers as { text: string; case_sensitive?: boolean }[]) || []
+
+  function updateAnswer(index: number, text: string) {
+    const newAnswers = [...answers]
+    newAnswers[index] = { ...newAnswers[index], text }
+    onUpdate({ ...question, correct_answers: newAnswers })
+  }
+
+  function addAnswer() {
+    if (answers.length >= 6) return
+    onUpdate({ ...question, correct_answers: [...answers, { text: '', case_sensitive: false }] })
+  }
+
+  function removeAnswer(index: number) {
+    if (answers.length <= 1) return
+    onUpdate({ ...question, correct_answers: answers.filter((_, i) => i !== index) })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">🖼️</div>
+        <div>
+          <p className="text-sm font-bold text-dark-text">Image Reveal</p>
+          <p className="text-xs text-gray-text">Upload an image via the media field above. It will be progressively revealed during the game.</p>
+        </div>
+      </div>
+      <div className="bg-light-gray rounded-lg p-3 border border-border-gray">
+        <p className="text-xs text-gray-text">The image will start hidden behind colored tiles that gradually disappear. Players type their guess.</p>
+      </div>
+      <p className="text-xs text-gray-text font-bold uppercase tracking-wide">Accepted answers</p>
+      {answers.map((answer, i) => (
+        <div key={i} className="flex items-center gap-2 bg-white rounded-lg border-2 border-correct-green overflow-hidden">
+          <div className="w-10 h-14 flex items-center justify-center bg-correct-green text-white text-lg flex-shrink-0">✓</div>
+          <input
+            type="text"
+            value={answer.text}
+            onChange={(e) => updateAnswer(i, e.target.value)}
+            placeholder={`Accepted answer ${i + 1}`}
+            maxLength={30}
+            className="flex-1 h-14 text-sm text-dark-text bg-transparent border-none focus:outline-none px-2"
+          />
+          {answers.length > 1 && (
+            <button onClick={() => removeAnswer(i)} className="text-gray-text hover:text-answer-red mr-2 text-sm">✕</button>
+          )}
+        </div>
+      ))}
+      {answers.length < 6 && (
+        <button
+          onClick={addAnswer}
+          className="w-full h-10 border-2 border-dashed border-mid-gray rounded-lg text-sm text-gray-text hover:border-correct-green hover:text-correct-green transition-colors"
+        >
+          + Add accepted answer
+        </button>
+      )}
     </div>
   )
 }

@@ -66,6 +66,16 @@ export function checkAnswer(
       const correct = (correctAnswers as number[]) || []
       return order.length === correct.length && order.every((v, i) => v === correct[i])
     }
+    case 'image_reveal': {
+      // Same logic as type_answer — player guesses what the image shows
+      const typed2 = ((answerData.text as string) || '').trim().toLowerCase().replace(/[^\w\s]/g, '')
+      const accepted2 = (correctAnswers as { text: string; case_sensitive?: boolean }[]) || []
+      return accepted2.some((a) => {
+        const target = a.case_sensitive ? a.text.trim() : a.text.trim().toLowerCase()
+        const answer = a.case_sensitive ? ((answerData.text as string) || '').trim() : typed2
+        return answer.replace(/[^\w\s]/g, '') === target.replace(/[^\w\s]/g, '')
+      })
+    }
     // Non-scored types
     case 'poll':
     case 'word_cloud':
@@ -73,7 +83,6 @@ export function checkAnswer(
     case 'open_ended':
     case 'nps_survey':
     case 'content_slide':
-    case 'image_reveal':
       return false
     default:
       return false

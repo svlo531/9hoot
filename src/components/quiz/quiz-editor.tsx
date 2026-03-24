@@ -69,6 +69,8 @@ export function QuizEditor({
       ? { min: 0, max: 100, step: 1 }
       : type === 'puzzle'
       ? [{ text: '' }, { text: '' }, { text: '' }, { text: '' }]
+      : type === 'content_slide'
+      ? { title: '', body: '', layout: 'center' }
       : null
 
     const defaultCorrect = type === 'quiz'
@@ -81,6 +83,8 @@ export function QuizEditor({
       ? { value: 50, margin: 5 }
       : type === 'puzzle'
       ? [0, 1, 2, 3]
+      : type === 'image_reveal'
+      ? [{ text: '', case_sensitive: false }]
       : null
 
     const { data, error } = await supabase
