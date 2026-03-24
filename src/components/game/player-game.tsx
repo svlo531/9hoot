@@ -258,6 +258,18 @@ export function PlayerGame({ pin }: { pin: string }) {
           setPlayerCount(lb.length)
         }
       })
+      .on('broadcast', { event: 'game:leaderboard' }, (payload: { payload?: { leaderboard?: { id: string; score: number }[] } }) => {
+        const lb = payload.payload?.leaderboard
+        if (lb && Array.isArray(lb)) {
+          const pid = participantIdRef.current
+          const myIdx = lb.findIndex(e => e.id === pid)
+          if (myIdx >= 0) {
+            setTotalScore(lb[myIdx].score)
+            setCurrentRank(myIdx + 1)
+          }
+          setPlayerCount(lb.length)
+        }
+      })
       .on('broadcast', { event: 'game:answer_lock' }, () => {
         if (answerLockedRef.current) return
         answerLockedRef.current = true

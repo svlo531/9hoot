@@ -331,14 +331,66 @@ export function HostGame({
     return counts
   }
 
-  function showLeaderboard() {
+  async function showLeaderboard() {
     setPhase('leaderboard')
     audio.play('leaderboardReveal')
-    channelRef.current?.send({
-      type: 'broadcast',
-      event: 'game:leaderboard',
-      payload: { leaderboard: leaderboard.slice(0, 10) },
-    })
+
+    // Mid-game reconciliation: re-score from DB to catch late answers
+    // that arrived after handleShowResults() fired
+    const { data: allAnswers } = await supabase
+      .from('answers')
+      .select('participant_id, question_id, answer_data, time_taken_ms')
+      .eq('session_id', session.id)
+
+    if (allAnswers && allAnswers.length > 0) {
+      const reconciledScores = new Map<string, { score: number; streak: number }>()
+
+      for (let qi = 0; qi <= currentIndex; qi++) {
+        const q = questions[qi]
+        const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud'].includes(q.type)
+        if (isNonScored) continue
+
+        const qAnswers = allAnswers.filter((a: { question_id: string }) => a.question_id === q.id)
+        for (const a of qAnswers) {
+          const ps = reconciledScores.get(a.participant_id) || { score: 0, streak: 0 }
+          const isCorrect = checkAnswer(q.type, a.answer_data as Record<string, unknown>, q.correct_answers)
+          if (isCorrect) {
+            ps.streak += 1
+            ps.score += Math.round(calculateScore(q.points, a.time_taken_ms || 5000, q.time_limit * 1000, true) * getStreakMultiplier(ps.streak))
+          } else {
+            ps.streak = 0
+          }
+          reconciledScores.set(a.participant_id, ps)
+        }
+      }
+
+      // Update in-memory scores so next question builds on correct base
+      setScores(reconciledScores)
+
+      const lb = Array.from(players.entries())
+        .filter(([, p]) => p.id)
+        .map(([, p]) => {
+          const id = p.id!
+          const s = reconciledScores.get(id)
+          const prev = scores.get(id)?.score || 0
+          return { id, nickname: p.nickname, score: s?.score || 0, delta: (s?.score || 0) - prev }
+        })
+        .sort((a, b) => b.score - a.score)
+
+      setLeaderboard(lb)
+
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:leaderboard',
+        payload: { leaderboard: lb.slice(0, 10) },
+      })
+    } else {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:leaderboard',
+        payload: { leaderboard: leaderboard.slice(0, 10) },
+      })
+    }
   }
 
   function nextQuestion() {
