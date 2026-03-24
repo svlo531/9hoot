@@ -37,6 +37,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [playerCount, setPlayerCount] = useState(0)
   const [podiumData, setPodiumData] = useState<{ nickname: string; score: number; rank: number }[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [brainstormVoteData, setBrainstormVoteData] = useState<string[] | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
   const lastQuestionIndexRef = useRef<number>(-1)
@@ -329,6 +330,15 @@ export function PlayerGame({ pin }: { pin: string }) {
         }
         goToPodium()
       })
+      .on('broadcast', { event: 'game:brainstorm_vote' }, (payload: { payload?: { ideas?: string[] } }) => {
+        const ideas = payload.payload?.ideas
+        if (ideas && Array.isArray(ideas)) {
+          setBrainstormVoteData(ideas)
+        }
+      })
+      .on('broadcast', { event: 'game:brainstorm_vote_end' }, () => {
+        setBrainstormVoteData(null)
+      })
       .subscribe()
 
     channel.track({ nickname, participantId })
@@ -347,6 +357,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     setIsCorrect(null)
     setPointsAwarded(0)
     setDisplayedPoints(0)
+    setBrainstormVoteData(null)
     answerLockedRef.current = false
     setPhase('question')
     questionStartRef.current = Date.now()
@@ -668,6 +679,11 @@ export function PlayerGame({ pin }: { pin: string }) {
       `}</style>
     </div>
   )
+  }
+
+  // Brainstorm voting screen - overrides ranking/result/answerFill when voting is active
+  if (brainstormVoteData && brainstormVoteData.length > 0 && participantId) {
+    return <BrainstormVoteScreen ideas={brainstormVoteData} channelRef={channelRef} participantId={participantId} />
   }
 
   if (phase === 'ranking') return (
@@ -1106,31 +1122,145 @@ function WordCloudInput({
 
 function BrainstormInput({ question, onSubmit }: { question: QuestionData; onSubmit: (data: Record<string, unknown>) => void }) {
   const [text, setText] = useState('')
+  const [ideas, setIdeas] = useState<string[]>([])
+  const MAX_IDEAS = 3
+
+  function addIdea() {
+    if (!text.trim() || ideas.length >= MAX_IDEAS) return
+    setIdeas(prev => [...prev, text.trim()])
+    setText('')
+  }
+
+  function submitAll() {
+    const allIdeas = [...ideas]
+    if (text.trim() && allIdeas.length < MAX_IDEAS) {
+      allIdeas.push(text.trim())
+    }
+    if (allIdeas.length === 0) return
+    onSubmit({ ideas: allIdeas })
+  }
+
+  const canAddMore = ideas.length < MAX_IDEAS
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: '#1a1a2e' }}>
       <div className="text-center text-white/50 text-xs py-1 font-bold mb-4">
         {question.index + 1} of {question.totalQuestions}
       </div>
       <div className="w-full max-w-md mx-auto px-4">
-        <p className="text-white/60 text-sm text-center mb-3">💡 Share your idea</p>
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Type your idea..."
-          maxLength={100}
-          autoFocus
-          className="w-full h-14 px-4 rounded-xl text-dark-text text-lg bg-white shadow-lg focus:outline-none"
-        />
+        <p className="text-white/60 text-sm text-center mb-3">Share up to {MAX_IDEAS} ideas</p>
+
+        {/* Submitted ideas as chips */}
+        {ideas.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {ideas.map((idea, i) => (
+              <span key={i} className="bg-purple-primary/40 text-white text-sm font-bold px-3 py-1.5 rounded-full border border-purple-primary/60">
+                {idea}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <p className="text-white/30 text-xs text-center mb-2">{ideas.length}/{MAX_IDEAS} ideas submitted</p>
+
+        {canAddMore && (
+          <>
+            <input
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIdea() } }}
+              placeholder="Type your idea..."
+              maxLength={100}
+              autoFocus
+              className="w-full h-14 px-4 rounded-xl text-dark-text text-lg bg-white shadow-lg focus:outline-none"
+            />
+            <button
+              onClick={addIdea}
+              disabled={!text.trim()}
+              className="w-full h-12 mt-2 rounded-xl bg-white/20 text-white font-bold text-sm shadow-lg disabled:opacity-40 transition-all active:scale-95"
+            >
+              + Add Idea ({ideas.length}/{MAX_IDEAS})
+            </button>
+          </>
+        )}
+
         <button
-          onClick={() => { if (text.trim()) onSubmit({ text: text.trim() }) }}
-          disabled={!text.trim()}
+          onClick={submitAll}
+          disabled={ideas.length === 0 && !text.trim()}
           className="w-full h-14 mt-3 rounded-xl bg-purple-primary text-white font-bold text-lg shadow-lg disabled:opacity-40 transition-all active:scale-95"
         >
-          Submit Idea
+          Submit {ideas.length > 0 ? `${ideas.length} Idea${ideas.length !== 1 ? 's' : ''}` : 'Idea'}
         </button>
       </div>
       <style jsx>{`@keyframes answer-pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } } .animate-answer-pop { animation: answer-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+    </div>
+  )
+}
+
+// ── BRAINSTORM VOTE SCREEN ──────────────────────────────────
+
+function BrainstormVoteScreen({ ideas, channelRef, participantId }: { ideas: string[]; channelRef: React.RefObject<RealtimeChannel | null>; participantId: string }) {
+  const [selectedIdea, setSelectedIdea] = useState<string | null>(null)
+  const [voted, setVoted] = useState(false)
+
+  function castVote() {
+    if (!selectedIdea || voted) return
+    setVoted(true)
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'player:brainstorm_vote',
+      payload: { idea: selectedIdea, participantId },
+    })
+  }
+
+  if (voted) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
+        <div className="w-24 h-24 rounded-full bg-purple-primary/30 flex items-center justify-center mb-4 animate-result-icon">
+          <span className="text-white text-4xl">✓</span>
+        </div>
+        <p className="text-white font-bold text-2xl animate-result-text">Vote submitted!</p>
+        <p className="text-white/40 text-sm mt-3">Waiting for results...</p>
+        <style jsx>{`
+          @keyframes result-icon { 0% { transform: scale(0); } 50% { transform: scale(1.3); } 70% { transform: scale(0.9); } 100% { transform: scale(1); } } .animate-result-icon { animation: result-icon 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+          @keyframes result-text { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } } .animate-result-text { animation: result-text 0.3s ease-out 0.2s both; }
+        `}</style>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col p-4" style={{ background: '#1a1a2e' }}>
+      <p className="text-white font-bold text-lg text-center mb-1">Vote for your favorite idea</p>
+      <p className="text-white/40 text-xs text-center mb-4">Tap to select, then vote</p>
+
+      <div className="flex-1 overflow-y-auto space-y-2">
+        {ideas.map((idea, i) => {
+          const isSelected = selectedIdea === idea
+          return (
+            <button
+              key={i}
+              onClick={() => setSelectedIdea(idea)}
+              className={`w-full text-left rounded-xl p-4 transition-all active:scale-[0.98] ${
+                isSelected
+                  ? 'bg-yellow-accent/20 border-2 border-yellow-accent shadow-lg'
+                  : 'bg-white/10 border-2 border-transparent'
+              }`}
+            >
+              <p className={`text-sm font-bold ${isSelected ? 'text-yellow-accent' : 'text-white'}`}>{idea}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      <button
+        onClick={castVote}
+        disabled={!selectedIdea}
+        className="w-full h-14 mt-3 rounded-xl bg-yellow-accent text-dark-text font-bold text-lg shadow-lg disabled:opacity-40 transition-all active:scale-95"
+      >
+        Vote
+      </button>
     </div>
   )
 }

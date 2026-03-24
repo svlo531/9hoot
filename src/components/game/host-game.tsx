@@ -36,6 +36,7 @@ export function HostGame({
   const [scores, setScores] = useState<Map<string, { score: number; streak: number }>>(new Map())
   const [muted, setMuted] = useState(false)
   const [getReadyCount, setGetReadyCount] = useState(3)
+  const [brainstormVoteQueue, setBrainstormVoteQueue] = useState<{ idea: string; participantId: string }[]>([])
   const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const questionStartRef = useRef<number>(0)
@@ -81,6 +82,12 @@ export function HostGame({
           }
           return next
         })
+      })
+      .on('broadcast', { event: 'player:brainstorm_vote' }, (payload: { payload: Record<string, unknown> }) => {
+        const { idea, participantId } = payload.payload as { idea: string; participantId: string }
+        if (idea && participantId) {
+          setBrainstormVoteQueue(prev => [...prev, { idea, participantId }])
+        }
       })
       .subscribe()
 
@@ -533,6 +540,9 @@ export function HostGame({
         question={currentQuestion}
         answers={answers}
         onNext={isNonScored ? nextQuestion : showLeaderboard}
+        channelRef={channelRef}
+        brainstormVoteQueue={brainstormVoteQueue}
+        clearBrainstormVoteQueue={() => setBrainstormVoteQueue([])}
       />
     )
   }
@@ -1021,17 +1031,110 @@ function ResultsScreen({
   question,
   answers,
   onNext,
+  channelRef,
+  brainstormVoteQueue,
+  clearBrainstormVoteQueue,
 }: {
   question: Question
   answers: PlayerAnswer[]
   onNext: () => void
+  channelRef: React.RefObject<RealtimeChannel | null>
+  brainstormVoteQueue: { idea: string; participantId: string }[]
+  clearBrainstormVoteQueue: () => void
 }) {
   const [barsVisible, setBarsVisible] = useState(false)
+
+  // Brainstorm voting state
+  const [brainstormVotingActive, setBrainstormVotingActive] = useState(false)
+  const [brainstormVoteTimer, setBrainstormVoteTimer] = useState(30)
+  const [brainstormVotes, setBrainstormVotes] = useState<Map<string, number>>(new Map())
+  const [brainstormVotingDone, setBrainstormVotingDone] = useState(false)
+  const brainstormVoteTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const brainstormVotersRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const t = setTimeout(() => setBarsVisible(true), 100)
     return () => clearTimeout(t)
   }, [])
+
+  // Process incoming brainstorm votes from parent
+  useEffect(() => {
+    if (brainstormVoteQueue.length === 0 || !brainstormVotingActive || brainstormVotingDone) return
+
+    clearBrainstormVoteQueue()
+
+    setBrainstormVotes(prev => {
+      const next = new Map(prev)
+      for (const { idea, participantId: pid } of brainstormVoteQueue) {
+        // One vote per player
+        if (brainstormVotersRef.current.has(pid)) continue
+        brainstormVotersRef.current.add(pid)
+        next.set(idea, (next.get(idea) || 0) + 1)
+      }
+      return next
+    })
+  }, [brainstormVoteQueue, brainstormVotingActive, brainstormVotingDone, clearBrainstormVoteQueue])
+
+  // Brainstorm voting countdown
+  useEffect(() => {
+    if (!brainstormVotingActive || brainstormVotingDone) return
+
+    brainstormVoteTimerRef.current = setTimeout(() => {
+      if (brainstormVoteTimer <= 1) {
+        setBrainstormVotingDone(true)
+        setBrainstormVotingActive(false)
+        // Broadcast voting ended
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'game:brainstorm_vote_end',
+          payload: {},
+        })
+      } else {
+        setBrainstormVoteTimer(brainstormVoteTimer - 1)
+      }
+    }, 1000)
+
+    return () => {
+      if (brainstormVoteTimerRef.current) clearTimeout(brainstormVoteTimerRef.current)
+    }
+  }, [brainstormVotingActive, brainstormVotingDone, brainstormVoteTimer, channelRef])
+
+  function startBrainstormVoting() {
+    // Collect all unique ideas (anonymous)
+    const ideasSet = new Set<string>()
+    for (const a of answers) {
+      // Each answer may have a single text or an array of ideas
+      const ideas = a.answerData.ideas as string[] | undefined
+      const text = a.answerData.text as string | undefined
+      if (ideas && Array.isArray(ideas)) {
+        for (const idea of ideas) {
+          if (idea.trim()) ideasSet.add(idea.trim())
+        }
+      } else if (text && text.trim()) {
+        ideasSet.add(text.trim())
+      }
+    }
+
+    const allIdeas = Array.from(ideasSet)
+
+    // Initialize vote counts
+    const initialVotes = new Map<string, number>()
+    for (const idea of allIdeas) {
+      initialVotes.set(idea, 0)
+    }
+    setBrainstormVotes(initialVotes)
+    brainstormVotersRef.current = new Set()
+    setBrainstormVotingActive(true)
+    setBrainstormVoteTimer(30)
+    setBrainstormVotingDone(false)
+
+    // Broadcast to players
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'game:brainstorm_vote',
+      payload: { ideas: allIdeas },
+    })
+  }
 
   // Type Answer results
   if (question.type === 'type_answer') {
@@ -1340,8 +1443,136 @@ function ResultsScreen({
     )
   }
 
-  // Brainstorm results — idea wall (same pattern as open_ended)
+  // Brainstorm results — idea wall with voting phase
   if (question.type === 'brainstorm') {
+    // Collect all ideas for display
+    const allIdeas: string[] = []
+    for (const a of answers) {
+      const ideas = a.answerData.ideas as string[] | undefined
+      const text = a.answerData.text as string | undefined
+      if (ideas && Array.isArray(ideas)) {
+        for (const idea of ideas) {
+          if (idea.trim()) allIdeas.push(idea.trim())
+        }
+      } else if (text && text.trim()) {
+        allIdeas.push(text.trim())
+      }
+    }
+    const uniqueIdeas = Array.from(new Set(allIdeas))
+    const totalVotes = Array.from(brainstormVotes.values()).reduce((a, b) => a + b, 0)
+
+    // Vote results view - after voting ends
+    if (brainstormVotingDone) {
+      const rankedIdeas = Array.from(brainstormVotes.entries())
+        .sort((a, b) => b[1] - a[1])
+      const maxVotes = Math.max(...rankedIdeas.map(([, v]) => v), 1)
+
+      return (
+        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+          <div className="px-8 py-4 mt-4">
+            <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+              <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+            </div>
+          </div>
+
+          <div className="flex-1 px-8 pb-4 overflow-y-auto">
+            <p className="text-white/50 text-sm text-center mb-2">Vote Results</p>
+            <p className="text-white/30 text-xs text-center mb-4">{totalVotes} vote{totalVotes !== 1 ? 's' : ''} cast</p>
+            <div className="space-y-3 max-w-2xl mx-auto">
+              {rankedIdeas.map(([idea, votes], i) => {
+                const barWidth = maxVotes > 0 ? (votes / maxVotes) * 100 : 0
+                const isTop3 = i < 3 && votes > 0
+                const medals = ['🥇', '🥈', '🥉']
+                return (
+                  <div
+                    key={idea}
+                    className="animate-response-card"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-lg w-8 text-center">{isTop3 ? medals[i] : <span className="text-white/40 font-bold text-sm">{i + 1}</span>}</span>
+                      <span className={`text-white font-bold text-sm flex-1 ${isTop3 ? '' : 'opacity-70'}`}>{idea}</span>
+                      <span className="text-white font-bold text-sm tabular-nums">{votes}</span>
+                      {isTop3 && <span className="text-yellow-accent text-xs font-bold">+{votes * 1000}</span>}
+                    </div>
+                    <div className="ml-11 h-3 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${barWidth}%`,
+                          backgroundColor: isTop3 ? ['#FFD700', '#C0C0C0', '#CD7F32'][i] : '#46178F',
+                          transitionDelay: `${i * 100}ms`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end px-8 pb-6 flex-shrink-0">
+            <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          </div>
+          <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
+        </div>
+      )
+    }
+
+    // Voting phase active - show ideas with live vote counts + timer
+    if (brainstormVotingActive) {
+      const rankedIdeas = Array.from(brainstormVotes.entries())
+        .sort((a, b) => b[1] - a[1])
+      const maxVotes = Math.max(...rankedIdeas.map(([, v]) => v), 1)
+
+      return (
+        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+          <div className="px-8 py-4 mt-4">
+            <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
+              <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
+            </div>
+          </div>
+
+          {/* Voting timer */}
+          <div className="flex justify-center items-center gap-4 px-8 py-2">
+            <div className="bg-white/10 rounded-full px-6 py-2 flex items-center gap-3">
+              <span className="text-white/60 text-sm font-bold">Voting</span>
+              <span className={`font-bold text-2xl tabular-nums ${brainstormVoteTimer <= 10 ? 'text-answer-red' : 'text-white'}`}>{brainstormVoteTimer}s</span>
+            </div>
+            <div className="bg-white/10 rounded-full px-4 py-2">
+              <span className="text-white/60 text-sm font-bold">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+
+          <div className="flex-1 px-8 pb-4 overflow-y-auto">
+            <div className="space-y-3 max-w-2xl mx-auto">
+              {rankedIdeas.map(([idea, votes], i) => {
+                const barWidth = maxVotes > 0 ? (votes / maxVotes) * 100 : 0
+                return (
+                  <div key={idea}>
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-white font-bold text-sm flex-1">{idea}</span>
+                      <span className="text-white font-bold text-sm tabular-nums">{votes}</span>
+                    </div>
+                    <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${barWidth}%`,
+                          backgroundColor: '#D89E00',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Initial results view - show idea cards + Start Voting button
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
         <div className="px-8 py-4 mt-4">
@@ -1351,23 +1582,25 @@ function ResultsScreen({
         </div>
 
         <div className="flex-1 px-8 pb-4 overflow-y-auto">
-          <p className="text-white/50 text-sm text-center mb-4">{answers.length} idea{answers.length !== 1 ? 's' : ''}</p>
+          <p className="text-white/50 text-sm text-center mb-4">{uniqueIdeas.length} idea{uniqueIdeas.length !== 1 ? 's' : ''} from {answers.length} player{answers.length !== 1 ? 's' : ''}</p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-4xl mx-auto">
-            {answers.map((a, i) => (
+            {uniqueIdeas.map((idea, i) => (
               <div
                 key={i}
                 className="bg-white/10 backdrop-blur-sm rounded-lg p-4 animate-response-card"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
-                <p className="text-white text-sm leading-relaxed">{(a.answerData.text as string) || ''}</p>
-                <p className="text-white/30 text-xs mt-2">{a.nickname}</p>
+                <p className="text-white text-sm leading-relaxed">{idea}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="flex justify-end px-8 pb-6 flex-shrink-0">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+        <div className="flex justify-between items-center px-8 pb-6 flex-shrink-0">
+          <button onClick={onNext} className="h-12 px-8 bg-white/20 text-white font-bold text-sm rounded-lg hover:bg-white/30 transition-all hover:scale-105 active:scale-95 shadow-lg">Skip Voting →</button>
+          {uniqueIdeas.length > 0 && (
+            <button onClick={startBrainstormVoting} className="h-12 px-8 bg-yellow-accent text-dark-text font-bold text-sm rounded-lg hover:bg-yellow-400 transition-all hover:scale-105 active:scale-95 shadow-lg">Start Voting</button>
+          )}
         </div>
         <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
       </div>

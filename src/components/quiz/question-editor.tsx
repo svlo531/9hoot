@@ -1,8 +1,94 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import type { Question, QuizOption, SliderOptions, ContentSlideOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
+
+function QuestionImageUpload({
+  question,
+  onUpdate,
+  label,
+}: {
+  question: Question
+  onUpdate: (q: Question) => void
+  label: string
+}) {
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+
+    setUploading(true)
+    const supabase = createClient()
+    const fileName = `${question.id}-${Date.now()}.jpg`
+
+    const { error } = await supabase.storage
+      .from('question-images')
+      .upload(fileName, file, { contentType: file.type, upsert: true })
+
+    if (error) {
+      console.error('Upload failed:', error)
+      setUploading(false)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('question-images').getPublicUrl(fileName)
+    setUploading(false)
+    onUpdate({ ...question, media_url: urlData.publicUrl, media_type: 'image' })
+  }
+
+  function handleRemove() {
+    onUpdate({ ...question, media_url: null, media_type: null })
+  }
+
+  return (
+    <div className="space-y-2 mb-4">
+      <div className="flex items-center justify-between">
+        <label className="block text-xs font-bold text-dark-text">{label}</label>
+        {question.media_url && (
+          <button onClick={handleRemove} className="text-xs text-answer-red hover:underline">Remove</button>
+        )}
+      </div>
+
+      {question.media_url ? (
+        <div className="relative group">
+          <div className="w-full rounded-lg overflow-hidden border border-border-gray bg-light-gray flex items-center justify-center" style={{ height: '120px' }}>
+            <img src={question.media_url} alt="Question media" className="max-w-full max-h-full object-contain" />
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center text-white text-xs font-bold disabled:opacity-60"
+          >
+            {uploading ? 'Uploading...' : 'Change image'}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full border-2 border-dashed border-mid-gray rounded-lg flex flex-col items-center justify-center text-gray-text hover:border-blue-cta hover:text-blue-cta transition-colors disabled:opacity-60"
+          style={{ height: '120px' }}
+        >
+          {uploading ? (
+            <span className="text-xs font-bold">Uploading...</span>
+          ) : (
+            <>
+              <span className="text-2xl mb-1">+</span>
+              <span className="text-xs font-bold">Upload image</span>
+            </>
+          )}
+        </button>
+      )}
+
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+    </div>
+  )
+}
 
 export function QuestionEditor({
   question,
@@ -28,7 +114,10 @@ export function QuestionEditor({
 
       {/* Answer options — varies by type */}
       {question.type === 'quiz' && (
-        <MCQEditor question={question} onUpdate={onUpdate} />
+        <>
+          <QuestionImageUpload question={question} onUpdate={onUpdate} label="Question image (optional)" />
+          <MCQEditor question={question} onUpdate={onUpdate} />
+        </>
       )}
       {question.type === 'true_false' && (
         <TrueFalseEditor question={question} onUpdate={onUpdate} />
@@ -61,7 +150,10 @@ export function QuestionEditor({
         <ContentSlideEditor question={question} onUpdate={onUpdate} />
       )}
       {question.type === 'image_reveal' && (
-        <ImageRevealEditor question={question} onUpdate={onUpdate} />
+        <>
+          <QuestionImageUpload question={question} onUpdate={onUpdate} label="Image to reveal" />
+          <ImageRevealEditor question={question} onUpdate={onUpdate} />
+        </>
       )}
     </div>
   )
@@ -634,7 +726,7 @@ function ImageRevealEditor({ question, onUpdate }: { question: Question; onUpdat
         <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">🖼️</div>
         <div>
           <p className="text-sm font-bold text-dark-text">Image Reveal</p>
-          <p className="text-xs text-gray-text">Upload an image via the media field above. It will be progressively revealed during the game.</p>
+          <p className="text-xs text-gray-text">The uploaded image will be progressively revealed during the game.</p>
         </div>
       </div>
       <div className="bg-light-gray rounded-lg p-3 border border-border-gray">
