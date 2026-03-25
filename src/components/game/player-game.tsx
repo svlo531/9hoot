@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ANSWER_SHAPES } from '@/lib/types'
-import { checkAnswer, calculateScore, getStreakMultiplier } from '@/lib/game-utils'
+import { checkAnswer, calculateScore, getStreakMultiplier, generateNickname } from '@/lib/game-utils'
+import type { SessionSettings } from '@/lib/types'
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { ThemeConfig } from '@/lib/theme-utils'
 import { DEFAULT_THEME, gameGradient } from '@/lib/theme-utils'
@@ -41,6 +42,11 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [error, setError] = useState<string | null>(null)
   const [brainstormVoteData, setBrainstormVoteData] = useState<string[] | null>(null)
   const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME)
+  const [email, setEmail] = useState('')
+  const [sessionSettings, setSessionSettings] = useState<SessionSettings>({})
+  const [generatedName, setGeneratedName] = useState('')
+  const [teamName, setTeamName] = useState<string | null>(null)
+  const [teamColor, setTeamColor] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
   const lastQuestionIndexRef = useRef<number>(-1)
@@ -342,6 +348,16 @@ export function PlayerGame({ pin }: { pin: string }) {
       .on('broadcast', { event: 'game:brainstorm_vote_end' }, () => {
         setBrainstormVoteData(null)
       })
+      .on('broadcast', { event: 'game:teams' }, (payload: { payload: Record<string, unknown> }) => {
+        const teamsData = payload.payload.teams as { id: string; name: string; color: string; playerIds: string[] }[]
+        if (teamsData && participantIdRef.current) {
+          const myTeam = teamsData.find(t => t.playerIds.includes(participantIdRef.current!))
+          if (myTeam) {
+            setTeamName(myTeam.name)
+            setTeamColor(myTeam.color)
+          }
+        }
+      })
       .subscribe()
 
     channel.track({ nickname, participantId })
@@ -405,30 +421,67 @@ export function PlayerGame({ pin }: { pin: string }) {
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault()
-    if (!nickname.trim()) return
     setError(null)
 
     const { data: session } = await supabase
-      .from('sessions').select('id, quiz_id').eq('pin', pin).neq('status', 'completed').single()
+      .from('sessions').select('id, quiz_id, settings').eq('pin', pin).neq('status', 'completed').single()
 
     if (!session) { setError('Game not found'); return }
 
+    const settings = (session.settings || {}) as SessionSettings
+    setSessionSettings(settings)
+
+    // If nickname generator is on and we don't have a generated name yet, generate one
+    if (settings.nicknameGenerator && !generatedName) {
+      const { data: existing } = await supabase
+        .from('participants').select('nickname').eq('session_id', session.id)
+      const existingNames = (existing || []).map((p: { nickname: string }) => p.nickname)
+      const generated = generateNickname(existingNames)
+      setGeneratedName(generated)
+      setNickname(generated)
+
+      // If player identifier is also off, auto-join immediately
+      if (!settings.playerIdentifier) {
+        await joinSession(session.id, session.quiz_id, generated, '')
+        return
+      }
+      // Otherwise show email form with generated name (re-render will show it)
+      return
+    }
+
+    // Validate nickname (manual entry)
+    const finalNickname = settings.nicknameGenerator ? generatedName : nickname.trim()
+    if (!finalNickname) return
+
+    // Validate email if required
+    if (settings.playerIdentifier && !email.trim()) {
+      setError('Email is required'); return
+    }
+    if (settings.playerIdentifier && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter a valid email'); return
+    }
+
+    await joinSession(session.id, session.quiz_id, finalNickname, email.trim())
+  }
+
+  async function joinSession(sid: string, quizId: string, playerNickname: string, playerEmail: string) {
     // Fetch theme
-    const { data: quiz } = await supabase.from('quizzes').select('theme_id').eq('id', session.quiz_id).single()
+    const { data: quiz } = await supabase.from('quizzes').select('theme_id').eq('id', quizId).single()
     if (quiz?.theme_id) {
       const { data: themeRow } = await supabase.from('themes').select('config').eq('id', quiz.theme_id).single()
       if (themeRow?.config) setTheme(themeRow.config as ThemeConfig)
     }
 
+    const insertData: Record<string, unknown> = { session_id: sid, nickname: playerNickname }
+    if (playerEmail) insertData.email = playerEmail
+
     const { data: participant, error: err } = await supabase
-      .from('participants')
-      .insert({ session_id: session.id, nickname: nickname.trim() })
-      .select().single()
+      .from('participants').insert(insertData).select().single()
 
     if (err || !participant) { setError('Failed to join: ' + (err?.message || 'Unknown error')); return }
 
     audio.play('answerSubmit')
-    setSessionId(session.id)
+    setSessionId(sid)
     setParticipantId(participant.id)
     setPhase('waiting')
   }
@@ -503,32 +556,73 @@ export function PlayerGame({ pin }: { pin: string }) {
 
   // ── RENDER ──────────────────────────────────
 
-  if (phase === 'nickname') return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
-      <h1 className="text-4xl font-bold text-white mb-6 animate-player-enter">9Hoot<span className="text-yellow-accent">!</span></h1>
-      <form onSubmit={handleJoin} className="w-72 animate-player-form">
-        <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
-          <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)}
-            placeholder="Nickname" maxLength={20}
-            className="w-full h-12 px-4 text-center text-dark-text font-bold text-base border-b-2 border-border-gray focus:outline-none focus:border-blue-cta placeholder:font-normal placeholder:text-border-gray" autoFocus />
-          <button type="submit" className="w-full h-12 bg-dark-text text-white font-bold text-base hover:bg-black transition-all active:scale-95">Join</button>
+  if (phase === 'nickname') {
+    // If we have a generated name but need email, show email-only form
+    if (generatedName && sessionSettings.playerIdentifier) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
+          <h1 className="text-4xl font-bold text-white mb-6 animate-player-enter">9Hoot<span className="text-yellow-accent">!</span></h1>
+          <form onSubmit={handleJoin} className="w-72 animate-player-form">
+            <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
+              <div className="px-4 py-3 text-center border-b-2 border-border-gray">
+                <p className="text-xs text-gray-text">Your name</p>
+                <p className="text-dark-text font-bold text-base">{generatedName}</p>
+              </div>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="Your email" className="w-full h-12 px-4 text-center text-dark-text font-bold text-base border-b-2 border-border-gray focus:outline-none focus:border-blue-cta placeholder:font-normal placeholder:text-border-gray" autoFocus />
+              <button type="submit" className="w-full h-12 bg-dark-text text-white font-bold text-base hover:bg-black transition-all active:scale-95">Join</button>
+            </div>
+            {error && <p className="text-white bg-answer-red/80 text-sm text-center py-2 px-3 rounded mt-3">{error}</p>}
+          </form>
+          <style jsx>{`
+            @keyframes player-enter { 0% { transform: scale(0.8) translateY(-20px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
+            .animate-player-enter { animation: player-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+            @keyframes player-form { 0% { transform: translateY(30px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+            .animate-player-form { animation: player-form 0.5s ease-out 0.2s both; }
+          `}</style>
         </div>
-        {error && <p className="text-white bg-answer-red/80 text-sm text-center py-2 px-3 rounded mt-3">{error}</p>}
-      </form>
-      <style jsx>{`
-        @keyframes player-enter { 0% { transform: scale(0.8) translateY(-20px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
-        .animate-player-enter { animation: player-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-        @keyframes player-form { 0% { transform: translateY(30px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
-        .animate-player-form { animation: player-form 0.5s ease-out 0.2s both; }
-      `}</style>
-    </div>
-  )
+      )
+    }
+
+    // Standard join form (with optional email field when playerIdentifier is on)
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
+        <h1 className="text-4xl font-bold text-white mb-6 animate-player-enter">9Hoot<span className="text-yellow-accent">!</span></h1>
+        <form onSubmit={handleJoin} className="w-72 animate-player-form">
+          <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
+            <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)}
+              placeholder="Nickname" maxLength={20}
+              className="w-full h-12 px-4 text-center text-dark-text font-bold text-base border-b-2 border-border-gray focus:outline-none focus:border-blue-cta placeholder:font-normal placeholder:text-border-gray" autoFocus />
+            {sessionSettings.playerIdentifier && (
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="Your email"
+                className="w-full h-12 px-4 text-center text-dark-text font-bold text-base border-b-2 border-border-gray focus:outline-none focus:border-blue-cta placeholder:font-normal placeholder:text-border-gray" />
+            )}
+            <button type="submit" className="w-full h-12 bg-dark-text text-white font-bold text-base hover:bg-black transition-all active:scale-95">Join</button>
+          </div>
+          {error && <p className="text-white bg-answer-red/80 text-sm text-center py-2 px-3 rounded mt-3">{error}</p>}
+        </form>
+        <style jsx>{`
+          @keyframes player-enter { 0% { transform: scale(0.8) translateY(-20px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
+          .animate-player-enter { animation: player-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+          @keyframes player-form { 0% { transform: translateY(30px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+          .animate-player-form { animation: player-form 0.5s ease-out 0.2s both; }
+        `}</style>
+      </div>
+    )
+  }
 
   if (phase === 'waiting') return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
       <div className="text-center">
         <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 animate-waiting-ring"><span className="text-3xl">✓</span></div>
         <p className="text-white font-bold text-xl">{nickname}</p>
+        {teamName && (
+          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full" style={{ backgroundColor: `${teamColor}33` }}>
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: teamColor || '#fff' }} />
+            <span className="text-white text-sm font-bold">{teamName}</span>
+          </div>
+        )}
         <p className="text-white/60 text-sm mt-2">You&apos;re in! Waiting for host...</p>
         <div className="flex justify-center gap-1 mt-4">
           {[0, 1, 2].map((i) => (<div key={i} className="w-2 h-2 rounded-full bg-white/40 animate-waiting-dot" style={{ animationDelay: `${i * 0.3}s` }} />))}
