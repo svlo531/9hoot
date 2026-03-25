@@ -26,17 +26,17 @@ import {
 } from 'lucide-react'
 
 const QUESTION_TYPES: { type: QuestionType; label: string; icon: ReactNode; category: string }[] = [
-  { type: 'quiz', label: 'Quiz', icon: <CircleHelp className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'true_false', label: 'True / False', icon: <CheckCircle className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'type_answer', label: 'Type Answer', icon: <Keyboard className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'puzzle', label: 'Puzzle', icon: <Puzzle className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'poll', label: 'Poll', icon: <BarChart3 className="w-6 h-6" />, category: 'Collect opinions' },
-  { type: 'word_cloud', label: 'Word Cloud', icon: <Cloud className="w-6 h-6" />, category: 'Collect opinions' },
-  { type: 'open_ended', label: 'Open-ended', icon: <MessageCircle className="w-6 h-6" />, category: 'Collect opinions' },
-  { type: 'nps_survey', label: 'NPS / Survey', icon: <TrendingUp className="w-6 h-6" />, category: 'Collect opinions' },
-  { type: 'image_reveal', label: 'Image Reveal', icon: <ImageIcon className="w-6 h-6" />, category: 'Test knowledge' },
-  { type: 'content_slide', label: 'Content Slide', icon: <Presentation className="w-6 h-6" />, category: 'Present info' },
+  { type: 'quiz', label: 'Quiz', icon: <CircleHelp className="w-6 h-6 text-[#E21B3C]" />, category: 'Test knowledge' },
+  { type: 'true_false', label: 'True / False', icon: <CheckCircle className="w-6 h-6 text-[#26890C]" />, category: 'Test knowledge' },
+  { type: 'type_answer', label: 'Type Answer', icon: <Keyboard className="w-6 h-6 text-[#1368CE]" />, category: 'Test knowledge' },
+  { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-6 h-6 text-[#D89E00]" />, category: 'Test knowledge' },
+  { type: 'puzzle', label: 'Puzzle', icon: <Puzzle className="w-6 h-6 text-[#46178F]" />, category: 'Test knowledge' },
+  { type: 'poll', label: 'Poll', icon: <BarChart3 className="w-6 h-6 text-[#0AA3CF]" />, category: 'Collect opinions' },
+  { type: 'word_cloud', label: 'Word Cloud', icon: <Cloud className="w-6 h-6 text-[#B8116E]" />, category: 'Collect opinions' },
+  { type: 'open_ended', label: 'Open-ended', icon: <MessageCircle className="w-6 h-6 text-[#FF6B35]" />, category: 'Collect opinions' },
+  { type: 'nps_survey', label: 'NPS / Survey', icon: <TrendingUp className="w-6 h-6 text-[#0AA3CF]" />, category: 'Collect opinions' },
+  { type: 'image_reveal', label: 'Image Reveal', icon: <ImageIcon className="w-6 h-6 text-[#D89E00]" />, category: 'Test knowledge' },
+  { type: 'content_slide', label: 'Content Slide', icon: <Presentation className="w-6 h-6 text-[#46178F]" />, category: 'Present info' },
 ]
 
 export function QuizEditor({
