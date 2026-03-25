@@ -2,14 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { Library, BarChart3, Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 import type { User } from '@supabase/supabase-js'
 
 const NAV_ITEMS = [
-  { href: '/library', label: 'Library', icon: '📚' },
-  { href: '/reports', label: 'Reports', icon: '📊' },
-  { href: '/groups', label: 'Groups', icon: '👥' },
+  { href: '/library', label: 'Library', icon: Library },
+  { href: '/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/groups', label: 'Groups', icon: Users },
 ]
 
 export function DashboardShell({
@@ -97,7 +98,7 @@ export function DashboardShell({
                       : 'text-dark-text hover:bg-light-gray'
                   }`}
                 >
-                  <span className="text-base">{item.icon}</span>
+                  <item.icon size={18} className="shrink-0" />
                   {item.label}
                 </Link>
               )
