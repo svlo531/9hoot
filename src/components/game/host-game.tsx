@@ -701,18 +701,44 @@ export function HostGame({
     )
   }
 
-  if (phase === 'leaderboard') return (
-    <LeaderboardScreen
-      leaderboard={leaderboard.slice(0, 10)}
-      onNext={nextQuestion}
-      isLast={currentIndex >= questions.length - 1}
-      theme={theme}
-    />
-  )
+  if (phase === 'leaderboard') {
+    if (sessionSettings.teamMode && teamLeaderboard.length > 0) {
+      return (
+        <TeamLeaderboardScreen
+          teamLeaderboard={teamLeaderboard}
+          individualLeaderboard={leaderboard.slice(0, 10)}
+          onNext={nextQuestion}
+          isLast={currentIndex >= questions.length - 1}
+          theme={theme}
+        />
+      )
+    }
+    return (
+      <LeaderboardScreen
+        leaderboard={leaderboard.slice(0, 10)}
+        onNext={nextQuestion}
+        isLast={currentIndex >= questions.length - 1}
+        theme={theme}
+      />
+    )
+  }
 
-  if (phase === 'podium') return (
-    <PodiumScreen podium={leaderboard.slice(0, 3)} fullLeaderboard={leaderboard.slice(0, 10)} quizTitle={quizTitle} theme={theme} />
-  )
+  if (phase === 'podium') {
+    if (sessionSettings.teamMode && teamLeaderboard.length > 0) {
+      return (
+        <TeamPodiumScreen
+          teamPodium={teamLeaderboard.slice(0, 3)}
+          fullTeamLeaderboard={teamLeaderboard}
+          individualTop={leaderboard.slice(0, 5)}
+          quizTitle={quizTitle}
+          theme={theme}
+        />
+      )
+    }
+    return (
+      <PodiumScreen podium={leaderboard.slice(0, 3)} fullLeaderboard={leaderboard.slice(0, 10)} quizTitle={quizTitle} theme={theme} />
+    )
+  }
 
   return null
 }
@@ -2059,6 +2085,202 @@ function LeaderboardScreen({
         .animate-lb-delta {
           animation: lb-delta 0.4s ease-out both;
         }
+      `}</style>
+    </div>
+  )
+}
+
+// ── TEAM LEADERBOARD ──────────────────────────────────
+
+function TeamLeaderboardScreen({
+  teamLeaderboard,
+  individualLeaderboard,
+  onNext,
+  isLast,
+  theme,
+}: {
+  teamLeaderboard: { id: string; name: string; color: string; score: number }[]
+  individualLeaderboard: { id: string; nickname: string; score: number; delta: number; streak: number }[]
+  onNext: () => void
+  isLast: boolean
+  theme: ThemeConfig
+}) {
+  return (
+    <div className="min-h-screen flex flex-col items-center" style={{ background: gameGradient(theme) }}>
+      <h2 className="text-3xl font-bold text-white mt-10 mb-8 animate-lb-title">Team Leaderboard</h2>
+
+      <div className="w-full max-w-xl px-8 space-y-3">
+        {teamLeaderboard.map((team, i) => {
+          const isTop3 = i < 3
+          const medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}']
+          return (
+            <div
+              key={team.id}
+              className="flex items-center gap-4 rounded-xl px-6 py-4 animate-lb-row"
+              style={{
+                animationDelay: `${i * 150 + 200}ms`,
+                background: `linear-gradient(90deg, ${team.color}33 0%, ${team.color}11 100%)`,
+                borderLeft: `4px solid ${team.color}`,
+              }}
+            >
+              <span className="text-2xl w-10 text-center">
+                {isTop3 ? medals[i] : <span className="text-white/50 font-bold">{i + 1}</span>}
+              </span>
+              <div className="flex-1">
+                <span className="text-white font-bold text-lg">{team.name}</span>
+              </div>
+              <span className="text-white font-bold text-xl tabular-nums">{team.score.toLocaleString()}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Top 5 individuals below */}
+      <div className="w-full max-w-md px-8 mt-6">
+        <p className="text-white/40 text-xs font-bold mb-2 text-center">TOP PLAYERS</p>
+        <div className="space-y-1.5">
+          {individualLeaderboard.slice(0, 5).map((entry, i) => (
+            <div key={entry.id} className="flex items-center gap-3 rounded-lg px-4 py-1.5 animate-lb-row" style={{ background: 'rgba(255,255,255,0.06)', animationDelay: `${(teamLeaderboard.length + i) * 150 + 200}ms` }}>
+              <span className="text-white/50 font-bold text-xs w-4 text-center">{i + 1}</span>
+              <span className="flex-1 text-white/80 font-bold text-sm">{entry.nickname}</span>
+              <span className="text-white/60 font-bold text-sm tabular-nums">{entry.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-auto pb-8 flex flex-col items-center gap-1">
+        <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">
+          {isLast ? 'Show Podium' : 'Next Question \u2192'}
+        </button>
+        <span className="text-white/40 text-[10px]">Press Enter or Space</span>
+      </div>
+
+      <style jsx>{`
+        @keyframes lb-title { 0% { opacity: 0; transform: translateY(-20px); } 100% { opacity: 1; transform: translateY(0); } }
+        .animate-lb-title { animation: lb-title 0.5s ease-out both; }
+        @keyframes lb-row { 0% { opacity: 0; transform: translateX(-40px); } 100% { opacity: 1; transform: translateX(0); } }
+        .animate-lb-row { animation: lb-row 0.6s cubic-bezier(0.25, 0.1, 0.25, 1) both; }
+      `}</style>
+    </div>
+  )
+}
+
+// ── TEAM PODIUM ──────────────────────────────────
+
+function TeamPodiumScreen({
+  teamPodium,
+  fullTeamLeaderboard,
+  individualTop,
+  quizTitle,
+  theme,
+}: {
+  teamPodium: { id: string; name: string; color: string; score: number }[]
+  fullTeamLeaderboard: { id: string; name: string; color: string; score: number }[]
+  individualTop: { id: string; nickname: string; score: number }[]
+  quizTitle: string
+  theme: ThemeConfig
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [pillarsVisible, setPillarsVisible] = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setPillarsVisible(true), 500)
+    return () => clearTimeout(t)
+  }, [])
+
+  // Confetti animation
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+    const particles: { x: number; y: number; vx: number; vy: number; color: string; size: number; rotation: number; rotationSpeed: number; shape: 'rect' | 'circle' }[] = []
+    const colors = ['#FFD700', '#E21B3C', '#1368CE', '#26890C', '#D89E00', '#FF69B4', '#00D4FF', '#FF6B35']
+    for (let i = 0; i < 80; i++) {
+      particles.push({ x: Math.random() * canvas.width, y: -20 - Math.random() * canvas.height * 0.5, vx: (Math.random() - 0.5) * 4, vy: Math.random() * 3 + 1, color: colors[Math.floor(Math.random() * colors.length)], size: Math.random() * 8 + 3, rotation: Math.random() * 360, rotationSpeed: (Math.random() - 0.5) * 10, shape: Math.random() > 0.5 ? 'rect' : 'circle' })
+    }
+    let animFrame: number
+    function animate() {
+      if (!ctx || !canvas) return
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      for (const p of particles) {
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate((p.rotation * Math.PI) / 180); ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, 1 - p.y / canvas.height)
+        if (p.shape === 'rect') ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6)
+        else { ctx.beginPath(); ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2); ctx.fill() }
+        ctx.restore(); p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.vx *= 0.99; p.rotation += p.rotationSpeed
+        if (p.y > canvas.height + 20) { p.y = -20; p.x = Math.random() * canvas.width; p.vy = Math.random() * 3 + 1 }
+      }
+      animFrame = requestAnimationFrame(animate)
+    }
+    animate()
+    return () => cancelAnimationFrame(animFrame)
+  }, [])
+
+  const podiumConfig = [
+    { height: 200, label: '1st', delay: '0.8s' },
+    { height: 160, label: '2nd', delay: '0.5s' },
+    { height: 130, label: '3rd', delay: '1.1s' },
+  ]
+
+  const displayOrder = teamPodium.length >= 3
+    ? [
+        { entry: teamPodium[1], config: podiumConfig[1] },
+        { entry: teamPodium[0], config: podiumConfig[0] },
+        { entry: teamPodium[2], config: podiumConfig[2] },
+      ]
+    : teamPodium.map((entry, i) => ({ entry, config: podiumConfig[i] }))
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: gameGradient(theme) }}>
+      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
+      <h1 className="text-4xl font-bold text-white mb-2 z-10 animate-podium-title">9Hoot<span className="text-yellow-accent">!</span></h1>
+      <p className="text-white/60 text-sm mb-12 z-10">{quizTitle}</p>
+
+      <div className="flex items-end gap-4 z-10">
+        {displayOrder.map(({ entry, config }) => (
+          <div key={entry.id} className="flex flex-col items-center animate-podium-pillar" style={{ animationDelay: config.delay }}>
+            <span className="text-white font-bold text-lg mb-1 animate-podium-name" style={{ animationDelay: `calc(${config.delay} + 0.3s)` }}>{entry.name}</span>
+            <span className="text-white/70 text-sm mb-3 animate-podium-name" style={{ animationDelay: `calc(${config.delay} + 0.4s)` }}>{entry.score.toLocaleString()} pts</span>
+            <div className="w-32 rounded-t-xl flex items-start justify-center pt-4 shadow-2xl" style={{ backgroundColor: entry.color, height: pillarsVisible ? `${config.height}px` : '0px', transition: 'height 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)', transitionDelay: config.delay }}>
+              <span className="text-2xl font-bold text-white/90 drop-shadow">{config.label}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* MVP player */}
+      {individualTop.length > 0 && (
+        <div className="z-10 mt-6 bg-white/10 rounded-xl px-6 py-3 backdrop-blur-sm animate-podium-name" style={{ animationDelay: '1.5s' }}>
+          <p className="text-white/50 text-xs font-bold text-center mb-1">MVP</p>
+          <p className="text-white font-bold text-center">{individualTop[0].nickname} - {individualTop[0].score.toLocaleString()} pts</p>
+        </div>
+      )}
+
+      {/* Remaining teams */}
+      {fullTeamLeaderboard.length > 3 && (
+        <div className="w-full max-w-md px-6 mt-4 z-10 space-y-2">
+          {fullTeamLeaderboard.slice(3).map((team, i) => (
+            <div key={team.id} className="flex items-center gap-3 rounded-lg px-4 py-2 animate-podium-name" style={{ background: `${team.color}22`, borderLeft: `3px solid ${team.color}`, animationDelay: `${1.5 + i * 0.15}s` }}>
+              <span className="text-white/50 font-bold text-sm w-6 text-center">{i + 4}</span>
+              <span className="flex-1 text-white font-bold text-sm">{team.name}</span>
+              <span className="text-white/70 font-bold text-sm tabular-nums">{team.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <a href="/library" className="mt-6 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg flex items-center hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg z-10">Back to Library</a>
+
+      <style jsx>{`
+        @keyframes podium-title { 0% { opacity: 0; transform: scale(0.5); } 100% { opacity: 1; transform: scale(1); } }
+        .animate-podium-title { animation: podium-title 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+        @keyframes podium-pillar { 0% { opacity: 0; transform: translateY(40px); } 100% { opacity: 1; transform: translateY(0); } }
+        .animate-podium-pillar { animation: podium-pillar 0.5s ease-out both; }
+        @keyframes podium-name { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+        .animate-podium-name { animation: podium-name 0.4s ease-out both; }
       `}</style>
     </div>
   )
