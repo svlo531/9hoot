@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { MessageCircle, TrendingUp, SlidersHorizontal, Cloud, Lightbulb, Presentation, Image as ImageIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Question, QuizOption, SliderOptions, ContentSlideOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
@@ -414,7 +415,7 @@ function OpenEndedEditor() {
   return (
     <div className="bg-white rounded-lg border border-mid-gray p-6">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">💬</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><MessageCircle size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Open-ended response</p>
           <p className="text-xs text-gray-text">Players type a free text response (up to 250 characters)</p>
@@ -434,7 +435,7 @@ function NPSSurveyEditor({ question, onUpdate }: { question: Question; onUpdate:
   return (
     <div className="bg-white rounded-lg border border-mid-gray p-6 space-y-4">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">📈</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><TrendingUp size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">NPS / Survey Scale</p>
           <p className="text-xs text-gray-text">Players select a score from 0 to 10</p>
@@ -503,7 +504,7 @@ function SliderEditor({ question, onUpdate }: { question: Question; onUpdate: (q
   return (
     <div className="bg-white rounded-lg border border-mid-gray p-6 space-y-4">
       <div className="flex items-center gap-3 mb-2">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">🎚️</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><SlidersHorizontal size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Slider</p>
           <p className="text-xs text-gray-text">Players drag a slider to answer</p>
@@ -631,7 +632,7 @@ function WordCloudEditor() {
   return (
     <div className="bg-white rounded-lg border border-mid-gray p-6">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">☁️</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><Cloud size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Word Cloud</p>
           <p className="text-xs text-gray-text">Players type 1-3 words. Popular responses appear larger.</p>
@@ -648,7 +649,7 @@ function BrainstormEditor() {
   return (
     <div className="bg-white rounded-lg border border-mid-gray p-6">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">💡</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><Lightbulb size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Brainstorm</p>
           <p className="text-xs text-gray-text">Players submit ideas (up to 100 characters each)</p>
@@ -671,7 +672,7 @@ function ContentSlideEditor({ question, onUpdate }: { question: Question; onUpda
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">📄</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><Presentation size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Content Slide</p>
           <p className="text-xs text-gray-text">Display information to players. No answers collected.</p>
@@ -723,7 +724,7 @@ function ImageRevealEditor({ question, onUpdate }: { question: Question; onUpdat
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center text-lg">🖼️</div>
+        <div className="w-10 h-10 rounded-full bg-purple-primary/10 flex items-center justify-center"><ImageIcon size={20} className="text-purple-primary" /></div>
         <div>
           <p className="text-sm font-bold text-dark-text">Image Reveal</p>
           <p className="text-xs text-gray-text">The uploaded image will be progressively revealed during the game.</p>
