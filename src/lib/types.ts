@@ -44,6 +44,7 @@ export interface Quiz {
   theme_id: string | null
   settings: Record<string, unknown>
   is_public: boolean
+  is_favorite: boolean
   question_count: number
   play_count: number
   created_at: string

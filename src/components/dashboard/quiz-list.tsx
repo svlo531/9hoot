@@ -6,11 +6,34 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Quiz, Folder } from '@/lib/types'
 
-export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?: Folder[] }) {
+interface QuizListProps {
+  quizzes: Quiz[]
+  folders?: Folder[]
+  initialSearch?: string
+}
+
+export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizListProps) {
   const router = useRouter()
   const supabase = createClient()
   const [moveMenuId, setMoveMenuId] = useState<string | null>(null)
   const [duplicating, setDuplicating] = useState<string | null>(null)
+  const [search, setSearch] = useState(initialSearch)
+
+  async function handleToggleFavorite(quizId: string, current: boolean) {
+    await supabase.from('quizzes').update({ is_favorite: !current }).eq('id', quizId)
+    router.refresh()
+  }
+
+  function handleSearch(value: string) {
+    setSearch(value)
+    const url = new URL(window.location.href)
+    if (value.trim()) {
+      url.searchParams.set('q', value.trim())
+    } else {
+      url.searchParams.delete('q')
+    }
+    router.push(url.pathname + url.search)
+  }
 
   async function handleDuplicate(quizId: string) {
     setDuplicating(quizId)
@@ -38,23 +61,46 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
     router.refresh()
   }
 
+  const searchBar = (
+    <div className="mb-4">
+      <input
+        type="text"
+        placeholder="Search quizzes..."
+        value={search}
+        onChange={(e) => handleSearch(e.target.value)}
+        className="w-full h-9 px-3 text-sm border border-mid-gray rounded-lg bg-white text-dark-text placeholder:text-gray-text focus:outline-none focus:border-blue-cta transition-colors"
+      />
+    </div>
+  )
+
   if (quizzes.length === 0) {
     return (
-      <div className="border-2 border-dashed border-mid-gray rounded-lg p-12 text-center">
-        <div className="text-4xl mb-3">🎯</div>
-        <h2 className="text-lg font-bold text-dark-text mb-2">No 9Hoots yet</h2>
-        <p className="text-gray-text text-sm mb-4">Create your first interactive quiz</p>
-        <Link
-          href="/library/new"
-          className="inline-flex h-10 px-6 bg-blue-cta hover:bg-blue-accent text-white text-sm font-bold rounded items-center transition-colors"
-        >
-          Create 9Hoot
-        </Link>
-      </div>
+      <>
+        {searchBar}
+        <div className="border-2 border-dashed border-mid-gray rounded-lg p-12 text-center">
+          <div className="text-4xl mb-3">🎯</div>
+          <h2 className="text-lg font-bold text-dark-text mb-2">
+            {search ? 'No matches' : 'No 9Hoots yet'}
+          </h2>
+          <p className="text-gray-text text-sm mb-4">
+            {search ? 'Try a different search term' : 'Create your first interactive quiz'}
+          </p>
+          {!search && (
+            <Link
+              href="/library/new"
+              className="inline-flex h-10 px-6 bg-blue-cta hover:bg-blue-accent text-white text-sm font-bold rounded items-center transition-colors"
+            >
+              Create 9Hoot
+            </Link>
+          )}
+        </div>
+      </>
     )
   }
 
   return (
+    <>
+    {searchBar}
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {quizzes.map((quiz) => {
         const showMoveMenu = moveMenuId === quiz.id
@@ -77,6 +123,17 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
                   📁 {currentFolder.name}
                 </span>
               )}
+              <button
+                onClick={() => handleToggleFavorite(quiz.id, quiz.is_favorite)}
+                className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                  quiz.is_favorite
+                    ? 'bg-yellow-accent text-white'
+                    : 'bg-black/30 text-white/70 hover:text-white hover:bg-black/50'
+                }`}
+                title={quiz.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <span className="text-sm">{quiz.is_favorite ? '★' : '☆'}</span>
+              </button>
             </div>
 
             <div className="p-4">
@@ -172,5 +229,6 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
         )
       })}
     </div>
+    </>
   )
 }

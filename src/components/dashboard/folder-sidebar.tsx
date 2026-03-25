@@ -8,9 +8,10 @@ import type { Folder } from '@/lib/types'
 interface Props {
   folders: Folder[]
   activeFolderId: string | null // null = "All"
+  showFavorites?: boolean
 }
 
-export function FolderSidebar({ folders, activeFolderId }: Props) {
+export function FolderSidebar({ folders, activeFolderId, showFavorites = false }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const [creating, setCreating] = useState(false)
@@ -183,13 +184,26 @@ export function FolderSidebar({ folders, activeFolderId }: Props) {
         <div
           onClick={() => navigateToFolder(null)}
           className={`flex items-center gap-1.5 h-8 px-2 rounded text-sm cursor-pointer transition-colors ${
-            activeFolderId === null
+            activeFolderId === null && !showFavorites
               ? 'bg-blue-cta/10 text-blue-cta font-bold'
               : 'text-dark-text hover:bg-light-gray'
           }`}
         >
           <span className="text-xs">📋</span>
           <span>All 9Hoots</span>
+        </div>
+
+        {/* Favorites link */}
+        <div
+          onClick={() => router.push('/library?favorites=1')}
+          className={`flex items-center gap-1.5 h-8 px-2 rounded text-sm cursor-pointer transition-colors ${
+            showFavorites
+              ? 'bg-blue-cta/10 text-blue-cta font-bold'
+              : 'text-dark-text hover:bg-light-gray'
+          }`}
+        >
+          <span className="text-xs">⭐</span>
+          <span>Favorites</span>
         </div>
 
         {/* Folder list */}
