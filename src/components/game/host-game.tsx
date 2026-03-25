@@ -429,11 +429,11 @@ export function HostGame({
       .select('participant_id, question_id, answer_data, time_taken_ms')
       .eq('session_id', session.id)
 
-    let finalScores = scores
+    let finalScores = new Map<string, { score: number; streak: number; correct: number }>()
     let finalLb = leaderboard
 
     if (allAnswers && allAnswers.length > 0) {
-      const reconciledScores = new Map<string, { score: number; streak: number }>()
+      const reconciledScores = new Map<string, { score: number; streak: number; correct: number }>()
 
       // Re-score all questions in order from DB answers
       for (const q of questions) {
@@ -442,10 +442,11 @@ export function HostGame({
 
         const qAnswers = allAnswers.filter((a: { question_id: string }) => a.question_id === q.id)
         for (const a of qAnswers) {
-          const ps = reconciledScores.get(a.participant_id) || { score: 0, streak: 0 }
+          const ps = reconciledScores.get(a.participant_id) || { score: 0, streak: 0, correct: 0 }
           const isCorrect = checkAnswer(q.type, a.answer_data as Record<string, unknown>, q.correct_answers)
           if (isCorrect) {
             ps.streak += 1
+            ps.correct += 1
             const mult = getStreakMultiplier(ps.streak)
             const base = calculateScore(q.points, a.time_taken_ms || 5000, q.time_limit * 1000, true)
             ps.score += Math.round(base * mult)
@@ -475,7 +476,7 @@ export function HostGame({
     const scoreWrites = Array.from(finalScores).map(([id, s]) =>
       supabase.from('participants').update({
         total_score: s.score,
-        total_correct: s.streak,
+        total_correct: s.correct,
       }).eq('id', id)
     )
 
