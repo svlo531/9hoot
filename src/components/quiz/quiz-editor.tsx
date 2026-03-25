@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import type { Quiz, Question, QuestionType } from '@/lib/types'
@@ -9,19 +9,34 @@ import { QuestionEditor } from './question-editor'
 import { BannerEditor } from './banner-editor'
 import { ThemePicker } from './theme-picker'
 import { SpreadsheetImport } from './spreadsheet-import'
+import {
+  CircleHelp,
+  CheckCircle,
+  Keyboard,
+  SlidersHorizontal,
+  Puzzle,
+  BarChart3,
+  Cloud,
+  MessageCircle,
+  TrendingUp,
+  Image as ImageIcon,
+  Presentation,
+  Settings,
+  Target,
+} from 'lucide-react'
 
-const QUESTION_TYPES: { type: QuestionType; label: string; icon: string; category: string }[] = [
-  { type: 'quiz', label: 'Quiz', icon: '❓', category: 'Test knowledge' },
-  { type: 'true_false', label: 'True / False', icon: '✅', category: 'Test knowledge' },
-  { type: 'type_answer', label: 'Type Answer', icon: '⌨️', category: 'Test knowledge' },
-  { type: 'slider', label: 'Slider', icon: '🎚️', category: 'Test knowledge' },
-  { type: 'puzzle', label: 'Puzzle', icon: '🧩', category: 'Test knowledge' },
-  { type: 'poll', label: 'Poll', icon: '📊', category: 'Collect opinions' },
-  { type: 'word_cloud', label: 'Word Cloud', icon: '☁️', category: 'Collect opinions' },
-  { type: 'open_ended', label: 'Open-ended', icon: '💬', category: 'Collect opinions' },
-  { type: 'nps_survey', label: 'NPS / Survey', icon: '📈', category: 'Collect opinions' },
-  { type: 'image_reveal', label: 'Image Reveal', icon: '🖼️', category: 'Test knowledge' },
-  { type: 'content_slide', label: 'Content Slide', icon: '📄', category: 'Present info' },
+const QUESTION_TYPES: { type: QuestionType; label: string; icon: ReactNode; category: string }[] = [
+  { type: 'quiz', label: 'Quiz', icon: <CircleHelp className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'true_false', label: 'True / False', icon: <CheckCircle className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'type_answer', label: 'Type Answer', icon: <Keyboard className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'puzzle', label: 'Puzzle', icon: <Puzzle className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'poll', label: 'Poll', icon: <BarChart3 className="w-6 h-6" />, category: 'Collect opinions' },
+  { type: 'word_cloud', label: 'Word Cloud', icon: <Cloud className="w-6 h-6" />, category: 'Collect opinions' },
+  { type: 'open_ended', label: 'Open-ended', icon: <MessageCircle className="w-6 h-6" />, category: 'Collect opinions' },
+  { type: 'nps_survey', label: 'NPS / Survey', icon: <TrendingUp className="w-6 h-6" />, category: 'Collect opinions' },
+  { type: 'image_reveal', label: 'Image Reveal', icon: <ImageIcon className="w-6 h-6" />, category: 'Test knowledge' },
+  { type: 'content_slide', label: 'Content Slide', icon: <Presentation className="w-6 h-6" />, category: 'Present info' },
 ]
 
 export function QuizEditor({
@@ -315,7 +330,7 @@ export function QuizEditor({
           onClick={() => setShowSettings(true)}
           className="h-8 px-3 text-xs font-bold text-gray-text border border-mid-gray rounded-lg hover:text-dark-text hover:border-dark-text transition-colors flex items-center gap-1.5"
         >
-          <span>⚙</span> Settings
+          <Settings className="w-4 h-4" /> Settings
         </button>
       </div>
 
@@ -377,7 +392,7 @@ export function QuizEditor({
           ) : (
             <div className="flex items-center justify-center h-full text-gray-text">
               <div className="text-center">
-                <div className="text-4xl mb-3">🎯</div>
+                <Target className="w-10 h-10 mx-auto mb-3 text-gray-text" />
                 <p className="text-sm">Add your first question to get started</p>
                 <button
                   onClick={() => setShowTypeSelector(true)}
@@ -538,7 +553,7 @@ function TypeSelector({ onSelect, onClose }: { onSelect: (type: QuestionType) =>
                 onClick={() => onSelect(type.type)}
                 className="bg-white border border-mid-gray rounded-lg p-3 text-left hover:border-blue-cta hover:shadow-sm transition-all"
               >
-                <div className="text-2xl mb-1">{type.icon}</div>
+                <div className="mb-1 text-dark-text">{type.icon}</div>
                 <div className="text-sm font-bold text-dark-text">{type.label}</div>
               </button>
             ))}
