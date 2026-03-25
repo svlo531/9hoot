@@ -34,6 +34,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/join') &&
     !request.nextUrl.pathname.startsWith('/play') &&
     !request.nextUrl.pathname.startsWith('/host') &&
+    !request.nextUrl.pathname.startsWith('/qa/join') &&
     !request.nextUrl.pathname.startsWith('/api/sessions') &&
     request.nextUrl.pathname !== '/'
   ) {
