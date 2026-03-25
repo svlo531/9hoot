@@ -60,6 +60,15 @@ export function ThemePicker({ quizId, selectedThemeId, onSelect }: Props) {
     }
   }
 
+  async function handleDeleteTheme(themeId: string) {
+    // Unset theme on any quizzes using it
+    await supabase.from('quizzes').update({ theme_id: null }).eq('theme_id', themeId)
+    await supabase.from('themes').delete().eq('id', themeId)
+
+    if (selectedThemeId === themeId) onSelect(null)
+    loadThemes()
+  }
+
   const presets = themes.filter((t) => t.is_preset)
   const custom = themes.filter((t) => !t.is_preset)
 
@@ -104,21 +113,29 @@ export function ThemePicker({ quizId, selectedThemeId, onSelect }: Props) {
 
         {/* Custom themes */}
         {custom.map((theme) => (
-          <button
-            key={theme.id}
-            onClick={() => onSelect(theme.id)}
-            className={`h-10 rounded border-2 transition-all overflow-hidden ${
-              selectedThemeId === theme.id ? 'border-blue-cta ring-1 ring-blue-cta' : 'border-mid-gray'
-            }`}
-            title={theme.name}
-          >
-            <div
-              className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold"
-              style={{ background: gameGradient(theme.config) }}
+          <div key={theme.id} className="relative group">
+            <button
+              onClick={() => onSelect(theme.id)}
+              className={`w-full h-10 rounded border-2 transition-all overflow-hidden ${
+                selectedThemeId === theme.id ? 'border-blue-cta ring-1 ring-blue-cta' : 'border-mid-gray'
+              }`}
+              title={theme.name}
             >
-              {theme.name}
-            </div>
-          </button>
+              <div
+                className="w-full h-full flex items-center justify-center text-white text-[9px] font-bold"
+                style={{ background: gameGradient(theme.config) }}
+              >
+                {theme.name}
+              </div>
+            </button>
+            <button
+              onClick={() => handleDeleteTheme(theme.id)}
+              className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-600 text-white text-[8px] rounded-full hidden group-hover:flex items-center justify-center shadow"
+              title="Delete theme"
+            >
+              ✕
+            </button>
+          </div>
         ))}
       </div>
 
