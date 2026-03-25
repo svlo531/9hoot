@@ -41,6 +41,18 @@ export function DashboardShell({
         </Link>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              const res = await fetch('/api/qa', { method: 'POST' })
+              if (res.ok) {
+                const { sessionId } = await res.json()
+                window.location.href = `/qa/${sessionId}`
+              }
+            }}
+            className="h-10 px-4 bg-white/20 hover:bg-white/30 text-white text-sm font-bold rounded-full flex items-center transition-colors"
+          >
+            Q&A
+          </button>
           <Link
             href="/library/new"
             className="h-10 px-5 bg-white hover:bg-gray-100 text-blue-header text-sm font-bold rounded-full flex items-center transition-colors"

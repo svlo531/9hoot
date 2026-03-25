@@ -700,11 +700,11 @@ function LobbyScreen({
   // Generate QR code
   useEffect(() => {
     import('qrcode').then(QRCode => {
-      QRCode.toDataURL('https://9hoot.vercel.app/join', {
+      QRCode.toDataURL(`https://9hoot.vercel.app/play/${pin}`, {
         width: 140, margin: 1, color: { dark: '#1a0a3e', light: '#ffffff' },
       }).then(url => setQrDataUrl(url))
     })
-  }, [])
+  }, [pin])
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: lobbyGradient(theme) }}>

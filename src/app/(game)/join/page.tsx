@@ -26,7 +26,7 @@ export default function JoinPage() {
     // Check if session exists
     const { data: session } = await supabase
       .from('sessions')
-      .select('id, pin, status')
+      .select('id, pin, status, mode')
       .eq('pin', trimmedPin)
       .neq('status', 'completed')
       .single()
@@ -34,6 +34,12 @@ export default function JoinPage() {
     if (!session) {
       setError('Game not found. Check your PIN.')
       setLoading(false)
+      return
+    }
+
+    // Q&A sessions don't have a lobby gate
+    if (session.mode === 'qa') {
+      router.push(`/qa/join/${trimmedPin}`)
       return
     }
 
