@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { HostGame } from '@/components/game/host-game'
-import { QAHostPanel } from '@/components/qa/qa-host-panel'
 import { DEFAULT_THEME } from '@/lib/theme-utils'
 import type { ThemeConfig } from '@/lib/theme-utils'
 
@@ -52,14 +51,11 @@ export default async function HostGamePage({
   }
 
   return (
-    <>
-      <HostGame
-        session={session}
-        questions={questions || []}
-        quizTitle={quiz?.title || 'Untitled'}
-        theme={themeConfig}
-      />
-      <QAHostPanel sessionId={session.id} />
-    </>
+    <HostGame
+      session={session}
+      questions={questions || []}
+      quizTitle={quiz?.title || 'Untitled'}
+      theme={themeConfig}
+    />
   )
 }

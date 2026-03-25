@@ -430,8 +430,6 @@ export function PlayerGame({ pin }: { pin: string }) {
     audio.play('answerSubmit')
     setSessionId(session.id)
     setParticipantId(participant.id)
-    // Store for Q&A panel (read-only side effect, no game logic change)
-    try { sessionStorage.setItem('9hoot_session', session.id); sessionStorage.setItem('9hoot_participant', participant.id) } catch {}
     setPhase('waiting')
   }
 

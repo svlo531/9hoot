@@ -43,10 +43,18 @@ export function DashboardShell({
         <div className="flex items-center gap-3">
           <button
             onClick={async () => {
-              const res = await fetch('/api/qa', { method: 'POST' })
-              if (res.ok) {
-                const { sessionId } = await res.json()
-                window.location.href = `/qa/${sessionId}`
+              try {
+                const res = await fetch('/api/qa', { method: 'POST' })
+                const data = await res.json()
+                if (res.ok && data.sessionId) {
+                  router.push(`/qa/${data.sessionId}`)
+                } else {
+                  console.error('Q&A creation failed:', data)
+                  alert('Failed to create Q&A: ' + (data.error || 'Unknown error'))
+                }
+              } catch (err) {
+                console.error('Q&A fetch error:', err)
+                alert('Failed to create Q&A session')
               }
             }}
             className="h-10 px-4 bg-white/20 hover:bg-white/30 text-white text-sm font-bold rounded-full flex items-center transition-colors"
