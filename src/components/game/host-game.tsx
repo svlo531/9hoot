@@ -6,6 +6,8 @@ import type { GameSession, Question, ContentSlideOptions } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 import { calculateScore, getStreakMultiplier, checkAnswer } from '@/lib/game-utils'
 import { useGameAudio } from '@/lib/use-game-audio'
+import type { ThemeConfig } from '@/lib/theme-utils'
+import { DEFAULT_THEME, gameGradient, lobbyGradient } from '@/lib/theme-utils'
 import { CountdownTimer } from './countdown-timer'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
@@ -22,10 +24,12 @@ export function HostGame({
   session,
   questions,
   quizTitle,
+  theme = DEFAULT_THEME,
 }: {
   session: GameSession
   questions: Question[]
   quizTitle: string
+  theme?: ThemeConfig
 }) {
   const [phase, setPhase] = useState<GamePhase>('lobby')
   const [players, setPlayers] = useState<Map<string, { nickname: string; id?: string }>>(new Map())
@@ -513,6 +517,7 @@ export function HostGame({
       muted={muted}
       onToggleMute={() => setMuted(!muted)}
       audio={audio}
+      theme={theme}
     />
   )
 
@@ -521,6 +526,7 @@ export function HostGame({
       questionIndex={currentIndex}
       totalQuestions={questions.length}
       count={getReadyCount}
+      theme={theme}
     />
   )
 
@@ -533,6 +539,7 @@ export function HostGame({
       answerCount={answers.length}
       playerCount={players.size}
       onSkip={() => nextQuestion()}
+      theme={theme}
     />
   )
 
@@ -546,6 +553,7 @@ export function HostGame({
         channelRef={channelRef}
         brainstormVoteQueue={brainstormVoteQueue}
         clearBrainstormVoteQueue={() => setBrainstormVoteQueue([])}
+        theme={theme}
       />
     )
   }
@@ -555,11 +563,12 @@ export function HostGame({
       leaderboard={leaderboard.slice(0, 10)}
       onNext={nextQuestion}
       isLast={currentIndex >= questions.length - 1}
+      theme={theme}
     />
   )
 
   if (phase === 'podium') return (
-    <PodiumScreen podium={leaderboard.slice(0, 3)} fullLeaderboard={leaderboard.slice(0, 10)} quizTitle={quizTitle} />
+    <PodiumScreen podium={leaderboard.slice(0, 3)} fullLeaderboard={leaderboard.slice(0, 10)} quizTitle={quizTitle} theme={theme} />
   )
 
   return null
@@ -571,13 +580,15 @@ function GetReadyScreen({
   questionIndex,
   totalQuestions,
   count,
+  theme,
 }: {
   questionIndex: number
   totalQuestions: number
   count: number
+  theme: ThemeConfig
 }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
       <div className="text-center animate-getready-enter">
         <p className="text-white/60 text-lg mb-4 font-bold">
           Question {questionIndex + 1} of {totalQuestions}
@@ -630,6 +641,7 @@ function LobbyScreen({
   muted,
   onToggleMute,
   audio,
+  theme,
 }: {
   pin: string
   players: Map<string, { nickname: string; id?: string }>
@@ -638,6 +650,7 @@ function LobbyScreen({
   muted: boolean
   onToggleMute: () => void
   audio: ReturnType<typeof useGameAudio>
+  theme: ThemeConfig
 }) {
   const [qrDataUrl, setQrDataUrl] = useState('')
 
@@ -658,7 +671,7 @@ function LobbyScreen({
   }, [])
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #001b50 50%, #002a5c 100%)' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: lobbyGradient(theme) }}>
       {/* Header with player count + mute */}
       <div className="flex items-center justify-between px-6 pt-4">
         <div className="text-left">
@@ -779,6 +792,7 @@ function QuestionScreen({
   answerCount,
   playerCount,
   onSkip,
+  theme,
 }: {
   question: Question
   index: number
@@ -787,6 +801,7 @@ function QuestionScreen({
   answerCount: number
   playerCount: number
   onSkip: () => void
+  theme: ThemeConfig
 }) {
   const options = (question.options as { text: string }[]) || []
 
@@ -815,7 +830,7 @@ function QuestionScreen({
   }, [question.id, question.type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="min-h-screen flex flex-col animate-question-enter" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col animate-question-enter" style={{ background: gameGradient(theme) }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3">
         <span className="text-white/60 text-sm font-bold">{index + 1} of {total}</span>
@@ -1037,6 +1052,7 @@ function ResultsScreen({
   channelRef,
   brainstormVoteQueue,
   clearBrainstormVoteQueue,
+  theme,
 }: {
   question: Question
   answers: PlayerAnswer[]
@@ -1044,6 +1060,7 @@ function ResultsScreen({
   channelRef: React.RefObject<RealtimeChannel | null>
   brainstormVoteQueue: { idea: string; participantId: string }[]
   clearBrainstormVoteQueue: () => void
+  theme: ThemeConfig
 }) {
   const [barsVisible, setBarsVisible] = useState(false)
 
@@ -1161,7 +1178,7 @@ function ResultsScreen({
     const incorrectCount = answers.length - correctCount
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1207,7 +1224,7 @@ function ResultsScreen({
   // Open-ended results — response wall
   if (question.type === 'open_ended') {
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1249,7 +1266,7 @@ function ResultsScreen({
     const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '—'
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1316,7 +1333,7 @@ function ResultsScreen({
     const avgValue = playerValues.length > 0 ? (playerValues.reduce((a, b) => a + b, 0) / playerValues.length).toFixed(1) : '—'
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1362,7 +1379,7 @@ function ResultsScreen({
     const correctCount = answers.filter((a) => checkAnswer('puzzle', a.answerData, question.correct_answers)).length
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1416,7 +1433,7 @@ function ResultsScreen({
     const cloudColors = ['#E21B3C', '#1368CE', '#D89E00', '#26890C', '#0AA3CF', '#B8116E', '#FFD700', '#FF69B4']
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1486,7 +1503,7 @@ function ResultsScreen({
       const maxVotes = Math.max(...rankedIdeas.map(([, v]) => v), 1)
 
       return (
-        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
           <div className="px-8 py-4 mt-4">
             <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
               <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1544,7 +1561,7 @@ function ResultsScreen({
       const maxVotes = Math.max(...rankedIdeas.map(([, v]) => v), 1)
 
       return (
-        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+        <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
           <div className="px-8 py-4 mt-4">
             <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
               <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1592,7 +1609,7 @@ function ResultsScreen({
 
     // Initial results view - show idea cards + Start Voting button
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1632,7 +1649,7 @@ function ResultsScreen({
     const incorrectCount = answers.length - correctCount
 
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
         <div className="px-8 py-4 mt-4">
           <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
             <h2 className="text-xl font-bold text-white">{question.question_text}</h2>
@@ -1696,7 +1713,7 @@ function ResultsScreen({
   const maxCount = Math.max(...optionCounts, 1)
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
       {/* Question bar */}
       <div className="px-8 py-4 mt-4">
         <div className="bg-white/15 backdrop-blur-md rounded-xl px-8 py-3 text-center">
@@ -1808,13 +1825,15 @@ function LeaderboardScreen({
   leaderboard,
   onNext,
   isLast,
+  theme,
 }: {
   leaderboard: { id: string; nickname: string; score: number; delta: number; streak: number }[]
   onNext: () => void
   isLast: boolean
+  theme: ThemeConfig
 }) {
   return (
-    <div className="min-h-screen flex flex-col items-center" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center" style={{ background: gameGradient(theme) }}>
       <h2 className="text-3xl font-bold text-white mt-10 mb-8 animate-lb-title">Leaderboard</h2>
 
       <div className="w-full max-w-xl px-8 space-y-3">
@@ -1901,10 +1920,12 @@ function PodiumScreen({
   podium,
   fullLeaderboard,
   quizTitle,
+  theme,
 }: {
   podium: { id: string; nickname: string; score: number }[]
   fullLeaderboard: { id: string; nickname: string; score: number }[]
   quizTitle: string
+  theme: ThemeConfig
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [pillarsVisible, setPillarsVisible] = useState(false)
@@ -2009,7 +2030,7 @@ function PodiumScreen({
     : podium.map((entry, i) => ({ entry, config: podiumConfig[i] }))
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: gameGradient(theme) }}>
       {/* Canvas confetti */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
 

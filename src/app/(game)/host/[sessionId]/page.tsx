@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { HostGame } from '@/components/game/host-game'
+import { DEFAULT_THEME } from '@/lib/theme-utils'
+import type { ThemeConfig } from '@/lib/theme-utils'
 
 export default async function HostGamePage({
   params,
@@ -30,15 +32,30 @@ export default async function HostGamePage({
 
   const { data: quiz } = await supabase
     .from('quizzes')
-    .select('title')
+    .select('title, theme_id')
     .eq('id', session.quiz_id)
     .single()
+
+  // Fetch theme if set
+  let themeConfig: ThemeConfig = DEFAULT_THEME
+  if (quiz?.theme_id) {
+    const { data: theme } = await supabase
+      .from('themes')
+      .select('config')
+      .eq('id', quiz.theme_id)
+      .single()
+
+    if (theme?.config) {
+      themeConfig = theme.config as ThemeConfig
+    }
+  }
 
   return (
     <HostGame
       session={session}
       questions={questions || []}
       quizTitle={quiz?.title || 'Untitled'}
+      theme={themeConfig}
     />
   )
 }

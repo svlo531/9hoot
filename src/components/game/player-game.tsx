@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { ANSWER_SHAPES } from '@/lib/types'
 import { checkAnswer, calculateScore, getStreakMultiplier } from '@/lib/game-utils'
 import { useGameAudio } from '@/lib/use-game-audio'
+import type { ThemeConfig } from '@/lib/theme-utils'
+import { DEFAULT_THEME, gameGradient } from '@/lib/theme-utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 type PlayerPhase = 'nickname' | 'waiting' | 'question' | 'answerFill' | 'result' | 'timeUp' | 'ranking' | 'podium'
@@ -38,6 +40,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   const [podiumData, setPodiumData] = useState<{ nickname: string; score: number; rank: number }[]>([])
   const [error, setError] = useState<string | null>(null)
   const [brainstormVoteData, setBrainstormVoteData] = useState<string[] | null>(null)
+  const [theme, setTheme] = useState<ThemeConfig>(DEFAULT_THEME)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const questionStartRef = useRef<number>(0)
   const lastQuestionIndexRef = useRef<number>(-1)
@@ -406,9 +409,16 @@ export function PlayerGame({ pin }: { pin: string }) {
     setError(null)
 
     const { data: session } = await supabase
-      .from('sessions').select('id').eq('pin', pin).neq('status', 'completed').single()
+      .from('sessions').select('id, quiz_id').eq('pin', pin).neq('status', 'completed').single()
 
     if (!session) { setError('Game not found'); return }
+
+    // Fetch theme
+    const { data: quiz } = await supabase.from('quizzes').select('theme_id').eq('id', session.quiz_id).single()
+    if (quiz?.theme_id) {
+      const { data: themeRow } = await supabase.from('themes').select('config').eq('id', quiz.theme_id).single()
+      if (themeRow?.config) setTheme(themeRow.config as ThemeConfig)
+    }
 
     const { data: participant, error: err } = await supabase
       .from('participants')
@@ -494,7 +504,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   // ── RENDER ──────────────────────────────────
 
   if (phase === 'nickname') return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #46178F 0%, #2a0e5a 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
       <h1 className="text-4xl font-bold text-white mb-6 animate-player-enter">9Hoot<span className="text-yellow-accent">!</span></h1>
       <form onSubmit={handleJoin} className="w-72 animate-player-form">
         <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -515,7 +525,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   )
 
   if (phase === 'waiting') return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #001b50 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
       <div className="text-center">
         <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 animate-waiting-ring"><span className="text-3xl">✓</span></div>
         <p className="text-white font-bold text-xl">{nickname}</p>
@@ -650,7 +660,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     const isNonScored = question && ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(question.type)
 
     if (isNonScored) return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
         <div className="w-24 h-24 rounded-full bg-purple-primary/30 flex items-center justify-center mb-4 animate-result-icon">
           <span className="text-white text-4xl">✓</span>
         </div>
@@ -687,7 +697,7 @@ export function PlayerGame({ pin }: { pin: string }) {
   }
 
   if (phase === 'ranking') return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #0a0033 0%, #1a0a3e 100%)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(theme) }}>
       <div className="text-center">
         {currentRank && (
           <div className="mb-4">
@@ -722,7 +732,7 @@ export function PlayerGame({ pin }: { pin: string }) {
     const isOnPodium = currentRank !== null && currentRank <= 3
 
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #46178F 0%, #1a0a3e 100%)' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: gameGradient(theme) }}>
         <div className="absolute inset-0 pointer-events-none">
           {Array.from({ length: 30 }).map((_, i) => (
             <div key={i} className="absolute w-2 h-2 rounded-full animate-podium-confetti"
@@ -1216,7 +1226,7 @@ function BrainstormVoteScreen({ ideas, channelRef, participantId }: { ideas: str
 
   if (voted) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a0a3e 0%, #0a0033 100%)' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: gameGradient(DEFAULT_THEME) }}>
         <div className="w-24 h-24 rounded-full bg-purple-primary/30 flex items-center justify-center mb-4 animate-result-icon">
           <span className="text-white text-4xl">✓</span>
         </div>

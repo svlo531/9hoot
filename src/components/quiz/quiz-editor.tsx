@@ -7,6 +7,7 @@ import type { Quiz, Question, QuestionType } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
 import { QuestionEditor } from './question-editor'
 import { BannerEditor } from './banner-editor'
+import { ThemePicker } from './theme-picker'
 
 const QUESTION_TYPES: { type: QuestionType; label: string; icon: string; category: string }[] = [
   { type: 'quiz', label: 'Quiz', icon: '❓', category: 'Test knowledge' },
@@ -39,6 +40,7 @@ export function QuizEditor({
   const [toast, setToast] = useState<string | null>(null)
   const [dragQIdx, setDragQIdx] = useState<number | null>(null)
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(quiz.cover_image_url)
+  const [themeId, setThemeId] = useState<string | null>(quiz.theme_id)
   const supabase = createClient()
   const router = useRouter()
 
@@ -196,6 +198,7 @@ export function QuizEditor({
       const { error: quizError } = await supabase.from('quizzes').update({
         title,
         cover_image_url: coverImageUrl,
+        theme_id: themeId,
         question_count: questions.length,
         updated_at: new Date().toISOString(),
       }).eq('id', quiz.id)
@@ -311,6 +314,14 @@ export function QuizEditor({
               quizId={quiz.id}
               coverImageUrl={coverImageUrl}
               onUpdate={(url) => { setCoverImageUrl(url); setIsDirty(true) }}
+            />
+
+            <hr className="border-mid-gray my-4" />
+            <h3 className="text-xs font-bold text-dark-text mb-3 uppercase tracking-wide">Theme</h3>
+            <ThemePicker
+              quizId={quiz.id}
+              selectedThemeId={themeId}
+              onSelect={(id) => { setThemeId(id); setIsDirty(true) }}
             />
 
             {/* Question settings — only when a question is selected */}
