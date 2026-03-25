@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { quizId } = await request.json()
+  const { quizId, settings } = await request.json()
 
   // Verify quiz exists and user owns it
   const { data: quiz } = await supabase
@@ -55,8 +55,9 @@ export async function POST(request: NextRequest) {
       pin,
       status: 'lobby',
       mode: 'live',
-      game_mode: 'classic',
+      game_mode: settings?.teamMode ? 'team' : 'classic',
       current_question_index: -1,
+      settings: settings || {},
     })
     .select()
     .single()
