@@ -8,6 +8,7 @@ import { ANSWER_SHAPES } from '@/lib/types'
 import { QuestionEditor } from './question-editor'
 import { BannerEditor } from './banner-editor'
 import { ThemePicker } from './theme-picker'
+import { SpreadsheetImport } from './spreadsheet-import'
 
 const QUESTION_TYPES: { type: QuestionType; label: string; icon: string; category: string }[] = [
   { type: 'quiz', label: 'Quiz', icon: '❓', category: 'Test knowledge' },
@@ -42,6 +43,7 @@ export function QuizEditor({
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(quiz.cover_image_url)
   const [themeId, setThemeId] = useState<string | null>(quiz.theme_id)
   const [showSettings, setShowSettings] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const supabase = createClient()
   const router = useRouter()
 
@@ -112,6 +114,75 @@ export function QuizEditor({
 
     if (error) console.error('Failed to add question:', error)
     setShowTypeSelector(false)
+    setSaving(false)
+  }
+
+  // ── IMPORT QUESTIONS FROM SPREADSHEET ──
+  async function handleImport(parsed: { questionText: string; type: QuestionType; options: string[]; correctAnswer: string; timeLimit: number; points: number }[]) {
+    setSaving(true)
+    setShowImport(false)
+
+    const startOrder = questions.length
+    const inserts = parsed.map((q, i) => {
+      let options = null
+      let correctAnswers = null
+
+      if (q.type === 'quiz' || q.type === 'poll') {
+        options = q.options.map((text) => ({ text }))
+        // Pad to 4 options
+        while (options.length < 2) options.push({ text: '' })
+        if (q.type === 'quiz') {
+          // Map A/B/C/D to index, or find matching text
+          const letter = q.correctAnswer.toUpperCase()
+          const letterIdx = 'ABCD'.indexOf(letter)
+          if (letterIdx >= 0 && letterIdx < options.length) {
+            correctAnswers = [letterIdx]
+          } else {
+            const textIdx = options.findIndex((o) => o.text.toLowerCase() === q.correctAnswer.toLowerCase())
+            correctAnswers = [textIdx >= 0 ? textIdx : 0]
+          }
+        }
+      } else if (q.type === 'true_false') {
+        options = [{ text: 'True' }, { text: 'False' }]
+        const val = q.correctAnswer.toLowerCase()
+        correctAnswers = [val === 'true' || val === 't' || val === 'yes']
+      } else if (q.type === 'type_answer') {
+        correctAnswers = [{ text: q.correctAnswer, case_sensitive: false }]
+      } else if (q.type === 'slider') {
+        options = { min: 0, max: 100, step: 1 }
+        const val = Number(q.correctAnswer) || 50
+        correctAnswers = { value: val, margin: 5 }
+      }
+
+      const isNonScored = ['poll', 'open_ended', 'nps_survey', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
+
+      return {
+        quiz_id: quiz.id,
+        sort_order: startOrder + i,
+        type: q.type,
+        question_text: q.questionText,
+        time_limit: q.timeLimit,
+        points: isNonScored ? 0 : (q.points as 0 | 1000 | 2000),
+        options,
+        correct_answers: correctAnswers,
+      }
+    })
+
+    const { data, error } = await supabase
+      .from('questions')
+      .insert(inserts)
+      .select()
+
+    if (data && data.length > 0) {
+      setQuestions((prev) => [...prev, ...data])
+      setSelectedIndex(questions.length)
+      setIsDirty(true)
+      setToast(`Imported ${data.length} questions`)
+    }
+    if (error) {
+      console.error('Import failed:', error)
+      setToast('Import failed: ' + error.message)
+    }
     setSaving(false)
   }
 
@@ -283,6 +354,13 @@ export function QuizEditor({
             >
               + Add question
             </button>
+            <button
+              onClick={() => setShowImport(true)}
+              disabled={saving}
+              className="w-full h-8 text-xs text-gray-text hover:text-blue-cta transition-colors"
+            >
+              Import from spreadsheet
+            </button>
           </div>
         </div>
 
@@ -393,6 +471,14 @@ export function QuizEditor({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Spreadsheet Import Modal */}
+        {showImport && (
+          <SpreadsheetImport
+            onImport={handleImport}
+            onClose={() => setShowImport(false)}
+          />
         )}
 
         {/* Save button — fixed bottom-right */}
