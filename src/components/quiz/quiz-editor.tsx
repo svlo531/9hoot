@@ -41,6 +41,7 @@ export function QuizEditor({
   const [dragQIdx, setDragQIdx] = useState<number | null>(null)
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(quiz.cover_image_url)
   const [themeId, setThemeId] = useState<string | null>(quiz.theme_id)
+  const [showSettings, setShowSettings] = useState(false)
   const supabase = createClient()
   const router = useRouter()
 
@@ -239,6 +240,12 @@ export function QuizEditor({
           placeholder="Quiz title..."
         />
         <span className="text-xs text-gray-text">{questions.length} questions</span>
+        <button
+          onClick={() => setShowSettings(true)}
+          className="h-8 px-3 text-xs font-bold text-gray-text border border-mid-gray rounded-lg hover:text-dark-text hover:border-dark-text transition-colors flex items-center gap-1.5"
+        >
+          <span>⚙</span> Settings
+        </button>
       </div>
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -305,76 +312,86 @@ export function QuizEditor({
           )}
         </div>
 
-        {/* Right sidebar — quiz settings + question settings */}
-        {!showTypeSelector && (
-          <div className="w-60 bg-white border-l border-mid-gray p-4 flex-shrink-0 overflow-y-auto">
-            {/* Quiz banner */}
-            <h3 className="text-xs font-bold text-dark-text mb-3 uppercase tracking-wide">Quiz Settings</h3>
-            <BannerEditor
-              quizId={quiz.id}
-              coverImageUrl={coverImageUrl}
-              onUpdate={(url) => { setCoverImageUrl(url); setIsDirty(true) }}
-            />
+        {/* Right sidebar — question settings only */}
+        {!showTypeSelector && selectedQuestion && (
+          <div className="w-56 bg-white border-l border-mid-gray p-4 flex-shrink-0 overflow-y-auto">
+            <h3 className="text-xs font-bold text-dark-text mb-3 uppercase tracking-wide">Question Settings</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-dark-text mb-1">Time limit</label>
+                <select
+                  value={selectedQuestion.time_limit}
+                  onChange={(e) => updateQuestion({ ...selectedQuestion, time_limit: Number(e.target.value) })}
+                  className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
+                >
+                  {[5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240].map((s) => (
+                    <option key={s} value={s}>{s < 60 ? `${s} sec` : `${s / 60} min`}</option>
+                  ))}
+                </select>
+              </div>
 
-            <hr className="border-mid-gray my-4" />
-            <h3 className="text-xs font-bold text-dark-text mb-3 uppercase tracking-wide">Theme</h3>
-            <ThemePicker
-              quizId={quiz.id}
-              selectedThemeId={themeId}
-              onSelect={(id) => { setThemeId(id); setIsDirty(true) }}
-            />
+              <div>
+                <label className="block text-xs font-bold text-dark-text mb-1">Points</label>
+                <select
+                  value={selectedQuestion.points}
+                  onChange={(e) => updateQuestion({ ...selectedQuestion, points: Number(e.target.value) as 0 | 1000 | 2000 })}
+                  className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
+                >
+                  <option value={0}>No points</option>
+                  <option value={1000}>Standard (1000)</option>
+                  <option value={2000}>Double (2000)</option>
+                </select>
+              </div>
 
-            {/* Question settings — only when a question is selected */}
-            {selectedQuestion && (
-              <>
-                <hr className="border-mid-gray my-4" />
-                <h3 className="text-xs font-bold text-dark-text mb-3 uppercase tracking-wide">Question Settings</h3>
+              <div>
+                <label className="block text-xs font-bold text-dark-text mb-1">Type</label>
+                <p className="text-sm text-gray-text">
+                  {QUESTION_TYPES.find(t => t.type === selectedQuestion.type)?.label}
+                </p>
+              </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-dark-text mb-1">Time limit</label>
-                    <select
-                      value={selectedQuestion.time_limit}
-                      onChange={(e) => updateQuestion({ ...selectedQuestion, time_limit: Number(e.target.value) })}
-                      className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
-                    >
-                      {[5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240].map((s) => (
-                        <option key={s} value={s}>{s < 60 ? `${s} sec` : `${s / 60} min`}</option>
-                      ))}
-                    </select>
-                  </div>
+              <hr className="border-mid-gray" />
 
-                  <div>
-                    <label className="block text-xs font-bold text-dark-text mb-1">Points</label>
-                    <select
-                      value={selectedQuestion.points}
-                      onChange={(e) => updateQuestion({ ...selectedQuestion, points: Number(e.target.value) as 0 | 1000 | 2000 })}
-                      className="w-full h-9 px-2 text-sm border border-border-gray rounded focus:outline-none focus:border-blue-cta"
-                    >
-                      <option value={0}>No points</option>
-                      <option value={1000}>Standard (1000)</option>
-                      <option value={2000}>Double (2000)</option>
-                    </select>
-                  </div>
+              <button
+                onClick={() => deleteQuestion(selectedQuestion.id)}
+                className="w-full h-9 border border-answer-red text-answer-red text-sm font-bold rounded hover:bg-red-50 transition-colors"
+              >
+                Delete question
+              </button>
+            </div>
+          </div>
+        )}
 
-                  <div>
-                    <label className="block text-xs font-bold text-dark-text mb-1">Type</label>
-                    <p className="text-sm text-gray-text">
-                      {QUESTION_TYPES.find(t => t.type === selectedQuestion.type)?.label}
-                    </p>
-                  </div>
-
-                  <hr className="border-mid-gray" />
-
-                  <button
-                    onClick={() => deleteQuestion(selectedQuestion.id)}
-                    className="w-full h-9 border border-answer-red text-answer-red text-sm font-bold rounded hover:bg-red-50 transition-colors"
-                  >
-                    Delete question
-                  </button>
+        {/* Quiz Settings Modal */}
+        {showSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowSettings(false)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 border-b border-mid-gray">
+                <h2 className="text-lg font-bold text-dark-text">Quiz Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="text-gray-text hover:text-dark-text text-lg">✕</button>
+              </div>
+              <div className="p-5 space-y-6">
+                {/* Banner */}
+                <div>
+                  <h3 className="text-sm font-bold text-dark-text mb-3">Banner Image</h3>
+                  <BannerEditor
+                    quizId={quiz.id}
+                    coverImageUrl={coverImageUrl}
+                    onUpdate={(url) => { setCoverImageUrl(url); setIsDirty(true) }}
+                  />
                 </div>
-              </>
-            )}
+
+                {/* Theme */}
+                <div>
+                  <h3 className="text-sm font-bold text-dark-text mb-3">Theme</h3>
+                  <ThemePicker
+                    quizId={quiz.id}
+                    selectedThemeId={themeId}
+                    onSelect={(id) => { setThemeId(id); setIsDirty(true) }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
