@@ -43,6 +43,13 @@ export default async function SessionReportPage({ params }: { params: Promise<{ 
     .select('*')
     .eq('session_id', sessionId)
 
+  // Fetch teams
+  const { data: teams } = await supabase
+    .from('teams')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('rank', { ascending: true })
+
   return (
     <SessionReport
       session={session}
@@ -50,6 +57,7 @@ export default async function SessionReportPage({ params }: { params: Promise<{ 
       questions={questions || []}
       participants={participants || []}
       answers={answers || []}
+      teams={teams || []}
     />
   )
 }

@@ -16,6 +16,7 @@ interface Props {
   questions: Record<string, unknown>[]
   participants: Record<string, unknown>[]
   answers: Record<string, unknown>[]
+  teams: Record<string, unknown>[]
 }
 
 type Tab = 'summary' | 'per-question' | 'per-participant'
@@ -89,7 +90,7 @@ function pct(n: number, d: number): number {
 // Component
 // ---------------------------------------------------------------------------
 
-export function SessionReport({ session, quiz, questions, participants, answers }: Props) {
+export function SessionReport({ session, quiz, questions, participants, answers, teams }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [sortField, setSortField] = useState<SortField>('rank')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -310,12 +311,15 @@ export function SessionReport({ session, quiz, questions, participants, answers 
 
   function buildParticipantSheet() {
     const rows: (string | number)[][] = [
-      ['Rank', 'Nickname', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
+      ['Rank', 'Nickname', 'Email', 'Team', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
     ]
     for (const p of sortedParticipants) {
+      const team = teams.find(t => (t.id as string) === p.teamId)
       rows.push([
         p.rank,
         p.nickname,
+        p.email,
+        (team?.name as string) || '',
         p.score,
         p.correct,
         p.incorrect,
@@ -327,15 +331,14 @@ export function SessionReport({ session, quiz, questions, participants, answers 
 
   function exportCSV() {
     const rows = [
-      ['Rank', 'Nickname', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
-      ...sortedParticipants.map((p) => [
-        p.rank,
-        p.nickname,
-        p.score,
-        p.correct,
-        p.incorrect,
-        p.avgTime != null ? (p.avgTime / 1000).toFixed(1) : '',
-      ]),
+      ['Rank', 'Nickname', 'Email', 'Team', 'Score', 'Correct', 'Incorrect', 'Avg Time (s)'],
+      ...sortedParticipants.map((p) => {
+        const team = teams.find(t => (t.id as string) === p.teamId)
+        return [
+          p.rank, p.nickname, p.email, (team?.name as string) || '', p.score, p.correct, p.incorrect,
+          p.avgTime != null ? (p.avgTime / 1000).toFixed(1) : '',
+        ]
+      }),
     ]
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
     downloadFile(csv, `${(quiz?.title as string) || 'report'}-participants.csv`, 'text/csv')
@@ -378,6 +381,8 @@ export function SessionReport({ session, quiz, questions, participants, answers 
         id: p.id as string,
         rank: idx + 1,
         nickname: (p.nickname as string) || 'Anonymous',
+        email: (p.email as string) || '',
+        teamId: (p.team_id as string) || '',
         score: (p.total_score as number) || 0,
         correct,
         incorrect,
@@ -586,6 +591,23 @@ export function SessionReport({ session, quiz, questions, participants, answers 
                       )}
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Team Standings */}
+        {teams.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-bold text-dark-text mb-3">Team Standings</h3>
+            <div className="space-y-2">
+              {[...teams].sort((a, b) => ((a.rank as number) || 99) - ((b.rank as number) || 99)).map((team, i) => (
+                <div key={team.id as string} className="flex items-center gap-3 bg-white rounded-lg px-4 py-2 border border-border-gray">
+                  <span className="text-sm font-bold text-gray-text w-6">{i + 1}</span>
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: (team.color as string) || '#1368CE' }} />
+                  <span className="flex-1 text-sm font-bold text-dark-text">{team.name as string}</span>
+                  <span className="text-sm font-bold text-dark-text">{((team.total_score as number) || 0).toLocaleString()} pts</span>
                 </div>
               ))}
             </div>
@@ -975,6 +997,23 @@ export function SessionReport({ session, quiz, questions, participants, answers 
                   [
                     ['rank', 'Rank'],
                     ['nickname', 'Nickname'],
+                  ] as [SortField, string][]
+                ).map(([field, label]) => (
+                  <th
+                    key={field}
+                    className="px-4 py-3 text-left font-bold text-gray-text cursor-pointer hover:text-dark-text select-none"
+                    onClick={() => toggleSort(field)}
+                  >
+                    {label}
+                    {renderSortArrow(field)}
+                  </th>
+                ))}
+                <th className="px-4 py-3 text-left font-bold text-gray-text select-none">Email</th>
+                {teams.length > 0 && (
+                  <th className="px-4 py-3 text-left font-bold text-gray-text select-none">Team</th>
+                )}
+                {(
+                  [
                     ['score', 'Score'],
                     ['correct', 'Correct'],
                     ['incorrect', 'Incorrect'],
@@ -1004,6 +1043,20 @@ export function SessionReport({ session, quiz, questions, participants, answers 
                     >
                       <td className="px-4 py-3 font-bold text-gray-text">{p.rank}</td>
                       <td className="px-4 py-3 font-bold text-dark-text">{p.nickname}</td>
+                      <td className="px-4 py-3 text-gray-text text-xs">{p.email || '-'}</td>
+                      {teams.length > 0 && (() => {
+                        const team = teams.find(t => (t.id as string) === p.teamId)
+                        return (
+                          <td className="px-4 py-3 text-sm">
+                            {team ? (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: (team.color as string) || '#1368CE' }} />
+                                {team.name as string}
+                              </span>
+                            ) : '-'}
+                          </td>
+                        )
+                      })()}
                       <td className="px-4 py-3 font-bold text-dark-text">{p.score.toLocaleString()}</td>
                       <td className="px-4 py-3 text-correct-green font-bold">{p.correct}</td>
                       <td className="px-4 py-3 text-incorrect-red font-bold">{p.incorrect}</td>
@@ -1011,7 +1064,7 @@ export function SessionReport({ session, quiz, questions, participants, answers 
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-3 bg-light-gray">
+                        <td colSpan={teams.length > 0 ? 8 : 7} className="px-4 py-3 bg-light-gray">
                           {renderParticipantBreakdown(pAnswers)}
                         </td>
                       </tr>
