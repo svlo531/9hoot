@@ -2,16 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { GameSession, Question, ContentSlideOptions } from '@/lib/types'
+import type { GameSession, Question, ContentSlideOptions, SessionSettings } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
-import { calculateScore, getStreakMultiplier, checkAnswer } from '@/lib/game-utils'
+import { calculateScore, getStreakMultiplier, checkAnswer, getTeamConfigs, assignPlayersToTeams } from '@/lib/game-utils'
+import { GameSettings } from './game-settings'
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { ThemeConfig } from '@/lib/theme-utils'
 import { DEFAULT_THEME, gameGradient, lobbyGradient } from '@/lib/theme-utils'
 import { CountdownTimer } from './countdown-timer'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-type GamePhase = 'lobby' | 'getReady' | 'question' | 'results' | 'leaderboard' | 'podium'
+type GamePhase = 'settings' | 'lobby' | 'getReady' | 'question' | 'results' | 'leaderboard' | 'podium'
 
 interface PlayerAnswer {
   participantId: string
@@ -31,7 +32,7 @@ export function HostGame({
   quizTitle: string
   theme?: ThemeConfig
 }) {
-  const [phase, setPhase] = useState<GamePhase>('lobby')
+  const [phase, setPhase] = useState<GamePhase>('settings')
   const [players, setPlayers] = useState<Map<string, { nickname: string; id?: string }>>(new Map())
   const [currentIndex, setCurrentIndex] = useState(-1)
   const [timeLeft, setTimeLeft] = useState(0)
@@ -41,6 +42,9 @@ export function HostGame({
   const [muted, setMuted] = useState(false)
   const [getReadyCount, setGetReadyCount] = useState(3)
   const [brainstormVoteQueue, setBrainstormVoteQueue] = useState<{ idea: string; participantId: string }[]>([])
+  const [sessionSettings, setSessionSettings] = useState<SessionSettings>(session.settings || {})
+  const [teams, setTeams] = useState<{ id: string; name: string; color: string; playerIds: string[] }[]>([])
+  const [teamLeaderboard, setTeamLeaderboard] = useState<{ id: string; name: string; color: string; score: number }[]>([])
   const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const questionStartRef = useRef<number>(0)
@@ -201,9 +205,56 @@ export function HostGame({
     return () => clearInterval(interval)
   }, [phase, currentQuestion, session.id, players, supabase])
 
-  function startGame() {
-    // BGM keeps playing through the entire game — only stops at podium
+  function handleSettingsReady(settings: SessionSettings) {
+    setSessionSettings(settings)
+    setPhase('lobby')
+  }
+
+  async function startGame() {
     audio.play('gameStart')
+
+    // Team mode: create teams in DB and assign players
+    if (sessionSettings.teamMode && sessionSettings.teamCount) {
+      const playerList = Array.from(players.entries())
+        .filter(([, p]) => p.id)
+        .map(([key, p]) => ({ key, id: p.id!, nickname: p.nickname }))
+
+      const teamConfigs = getTeamConfigs(sessionSettings.teamCount)
+      const distributed = assignPlayersToTeams(playerList, sessionSettings.teamCount)
+
+      const createdTeams: { id: string; name: string; color: string; playerIds: string[] }[] = []
+
+      for (let i = 0; i < teamConfigs.length; i++) {
+        const config = teamConfigs[i]
+        const teamPlayers = distributed[i]
+
+        const { data: team } = await supabase
+          .from('teams')
+          .insert({
+            session_id: session.id,
+            name: config.name,
+            color: config.color,
+          })
+          .select()
+          .single()
+
+        if (team) {
+          const playerIds = teamPlayers.map(p => p.id)
+          for (const pid of playerIds) {
+            await supabase.from('participants').update({ team_id: team.id }).eq('id', pid)
+          }
+          createdTeams.push({ id: team.id, name: config.name, color: config.color, playerIds })
+        }
+      }
+
+      setTeams(createdTeams)
+
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:teams',
+        payload: { teams: createdTeams },
+      })
+    }
 
     channelRef.current?.send({
       type: 'broadcast',
@@ -211,15 +262,11 @@ export function HostGame({
       payload: {},
     })
 
-    // Only set status to active — DO NOT set current_question_index yet.
-    // The player polls for index changes, so setting it here would make
-    // them see the question before the Get Ready countdown finishes.
     supabase.from('sessions').update({
       status: 'active',
       started_at: new Date().toISOString(),
     }).eq('id', session.id).then(() => {})
 
-    // Show Get Ready screen first
     showGetReady(0)
   }
 
@@ -325,16 +372,39 @@ export function HostGame({
       .sort((a, b) => b.score - a.score)
     setLeaderboard(lb)
 
-    channelRef.current?.send({
-      type: 'broadcast',
-      event: 'game:results',
-      payload: {
-        correctAnswers: currentQuestion.correct_answers,
-        answerCounts: getAnswerCounts(),
-        leaderboard: lb,
-      },
-    })
-  }, [currentQuestion, answers, scores, players, session.id, supabase])
+    // Compute team leaderboard if team mode
+    if (sessionSettings.teamMode && teams.length > 0) {
+      const teamLb = teams.map(t => {
+        const teamScore = t.playerIds.reduce((sum, pid) => {
+          const s = newScores.get(pid)
+          return sum + (s?.score || 0)
+        }, 0)
+        return { id: t.id, name: t.name, color: t.color, score: teamScore }
+      }).sort((a, b) => b.score - a.score)
+      setTeamLeaderboard(teamLb)
+
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:results',
+        payload: {
+          correctAnswers: currentQuestion.correct_answers,
+          answerCounts: getAnswerCounts(),
+          leaderboard: lb,
+          teamLeaderboard: teamLb,
+        },
+      })
+    } else {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'game:results',
+        payload: {
+          correctAnswers: currentQuestion.correct_answers,
+          answerCounts: getAnswerCounts(),
+          leaderboard: lb,
+        },
+      })
+    }
+  }, [currentQuestion, answers, scores, players, session.id, supabase, sessionSettings.teamMode, teams])
 
   handleShowResultsRef.current = handleShowResults
 
@@ -393,6 +463,17 @@ export function HostGame({
         .sort((a, b) => b.score - a.score)
 
       setLeaderboard(lb)
+
+      if (sessionSettings.teamMode && teams.length > 0) {
+        const tLb = teams.map(t => {
+          const teamScore = t.playerIds.reduce((sum, pid) => {
+            const s = reconciledScores.get(pid)
+            return sum + (s?.score || 0)
+          }, 0)
+          return { id: t.id, name: t.name, color: t.color, score: teamScore }
+        }).sort((a, b) => b.score - a.score)
+        setTeamLeaderboard(tLb)
+      }
 
       channelRef.current?.send({
         type: 'broadcast',
@@ -490,6 +571,23 @@ export function HostGame({
 
     await Promise.all([...scoreWrites, ...rankWrites])
 
+    // Write team scores to DB
+    if (sessionSettings.teamMode && teams.length > 0) {
+      const tLb = teams.map(t => {
+        const teamScore = t.playerIds.reduce((sum, pid) => {
+          const s = finalScores.get(pid)
+          return sum + (s?.score || 0)
+        }, 0)
+        return { id: t.id, name: t.name, color: t.color, score: teamScore }
+      }).sort((a, b) => b.score - a.score)
+      setTeamLeaderboard(tLb)
+
+      const teamWrites = tLb.map((t, i) =>
+        supabase.from('teams').update({ total_score: t.score, rank: i + 1 }).eq('id', t.id)
+      )
+      await Promise.all(teamWrites)
+    }
+
     // THEN set completed — triggers player podium via Postgres Changes
     await supabase.from('sessions').update({
       status: 'completed',
@@ -543,6 +641,15 @@ export function HostGame({
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── RENDER ──────────────────────────────────
+
+  if (phase === 'settings') return (
+    <GameSettings
+      sessionId={session.id}
+      quizTitle={quizTitle}
+      theme={theme}
+      onReady={handleSettingsReady}
+    />
+  )
 
   if (phase === 'lobby') return (
     <LobbyScreen
