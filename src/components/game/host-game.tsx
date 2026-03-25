@@ -506,6 +506,37 @@ export function HostGame({
     })
   }
 
+  // ── KEYBOARD SHORTCUTS ──────────────────────────────────
+  // Enter or Space advances to next phase (same as clicking the main action button)
+
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  const currentIndexRef = useRef(currentIndex)
+  currentIndexRef.current = currentIndex
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      e.preventDefault()
+
+      const p = phaseRef.current
+      if (p === 'lobby') startGame()
+      else if (p === 'question') nextQuestion()
+      else if (p === 'results') {
+        const q = questions[currentIndexRef.current]
+        const isNonScored = q && ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
+        if (isNonScored) nextQuestion()
+        else showLeaderboard()
+      }
+      else if (p === 'leaderboard') nextQuestion()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── RENDER ──────────────────────────────────
 
   if (phase === 'lobby') return (
