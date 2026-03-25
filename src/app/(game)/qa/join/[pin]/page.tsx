@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import { MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface QAQuestion {
@@ -186,7 +187,7 @@ export default function QAPlayerPage() {
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
         {unanswered.length === 0 && answered.length === 0 && (
           <div className="text-center py-12">
-            <div className="text-3xl mb-2">💬</div>
+            <MessageCircle size={32} className="mx-auto text-white/40 mb-2" />
             <p className="text-white/60 text-sm">No questions yet. Be the first to ask!</p>
           </div>
         )}
