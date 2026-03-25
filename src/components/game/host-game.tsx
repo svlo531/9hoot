@@ -513,24 +513,29 @@ export function HostGame({
   phaseRef.current = phase
   const currentIndexRef = useRef(currentIndex)
   currentIndexRef.current = currentIndex
+  const startGameRef = useRef(startGame)
+  startGameRef.current = startGame
+  const nextQuestionRef = useRef(nextQuestion)
+  nextQuestionRef.current = nextQuestion
+  const showLeaderboardRef = useRef(showLeaderboard)
+  showLeaderboardRef.current = showLeaderboard
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Enter' && e.key !== ' ') return
-      // Don't trigger if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       e.preventDefault()
 
       const p = phaseRef.current
-      if (p === 'lobby') startGame()
-      else if (p === 'question') nextQuestion()
+      if (p === 'lobby') startGameRef.current()
+      else if (p === 'question') nextQuestionRef.current()
       else if (p === 'results') {
         const q = questions[currentIndexRef.current]
         const isNonScored = q && ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
-        if (isNonScored) nextQuestion()
-        else showLeaderboard()
+        if (isNonScored) nextQuestionRef.current()
+        else showLeaderboardRef.current()
       }
-      else if (p === 'leaderboard') nextQuestion()
+      else if (p === 'leaderboard') nextQuestionRef.current()
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -769,12 +774,15 @@ function LobbyScreen({
       {/* Footer — Start button only */}
       <div className="flex justify-end px-6 py-4">
         {players.size > 0 && (
-          <button
-            onClick={onStart}
-            className="h-12 px-10 bg-correct-green hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-lg transition-all hover:scale-105 active:scale-95 animate-lobby-start"
-          >
-            Start
-          </button>
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={onStart}
+              className="h-12 px-10 bg-correct-green hover:bg-green-600 text-white font-bold text-lg rounded-lg shadow-lg transition-all hover:scale-105 active:scale-95 animate-lobby-start"
+            >
+              Start
+            </button>
+            <span className="text-white/40 text-[10px]">Press Enter or Space</span>
+          </div>
         )}
       </div>
 
@@ -990,12 +998,15 @@ function QuestionScreen({
                 <p className="text-white/80 text-lg leading-relaxed whitespace-pre-wrap">{slideOpts.body}</p>
               )}
             </div>
-            <button
-              onClick={onSkip}
-              className="mt-6 h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
-            >
-              Next →
-            </button>
+            <div className="flex flex-col items-center gap-1 mt-6">
+              <button
+                onClick={onSkip}
+                className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
+              >
+                Next →
+              </button>
+              <span className="text-white/40 text-[10px]">Press Enter or Space</span>
+            </div>
           </div>
         )
       })()}
@@ -1245,7 +1256,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
         <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
       </div>
@@ -1279,7 +1290,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6 flex-shrink-0">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
         <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
       </div>
@@ -1349,7 +1360,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
       </div>
     )
@@ -1397,7 +1408,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
         <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
       </div>
@@ -1443,7 +1454,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
         <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
       </div>
@@ -1501,7 +1512,7 @@ function ResultsScreen({
 
         <div className="flex justify-between items-center px-8 pb-6">
           <span className="text-white/30 text-sm">{answers.length} response{answers.length !== 1 ? 's' : ''}</span>
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
 
         <style jsx>{`@keyframes cloud-word { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } } .animate-cloud-word { animation: cloud-word 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
@@ -1578,7 +1589,7 @@ function ResultsScreen({
           </div>
 
           <div className="flex justify-end px-8 pb-6 flex-shrink-0">
-            <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+            <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
           </div>
           <style jsx>{`@keyframes response-card { 0% { transform: translateY(10px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } } .animate-response-card { animation: response-card 0.3s ease-out both; }`}</style>
         </div>
@@ -1723,7 +1734,7 @@ function ResultsScreen({
         </div>
 
         <div className="flex justify-end px-8 pb-6">
-          <button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button>
+          <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
         <style jsx>{`@keyframes results-check { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.3); } 100% { transform: scale(1); opacity: 1; } } .animate-results-check { animation: results-check 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }`}</style>
       </div>
@@ -1909,13 +1920,14 @@ function LeaderboardScreen({
         })}
       </div>
 
-      <div className="mt-auto pb-8">
+      <div className="mt-auto pb-8 flex flex-col items-center gap-1">
         <button
           onClick={onNext}
           className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg"
         >
           {isLast ? 'Show Podium' : 'Next Question →'}
         </button>
+        <span className="text-white/40 text-[10px]">Press Enter or Space</span>
       </div>
 
       <style jsx>{`
