@@ -10,6 +10,17 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
   const router = useRouter()
   const supabase = createClient()
   const [moveMenuId, setMoveMenuId] = useState<string | null>(null)
+  const [duplicating, setDuplicating] = useState<string | null>(null)
+
+  async function handleDuplicate(quizId: string) {
+    setDuplicating(quizId)
+    const res = await fetch(`/api/quizzes/${quizId}/duplicate`, { method: 'POST' })
+    setDuplicating(null)
+    if (res.ok) {
+      const { id } = await res.json()
+      router.push(`/library/${id}`)
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this quiz and all its data?')) return
@@ -87,6 +98,14 @@ export function QuizList({ quizzes, folders = [] }: { quizzes: Quiz[]; folders?:
                 >
                   Host
                 </Link>
+                <button
+                  onClick={() => handleDuplicate(quiz.id)}
+                  disabled={duplicating === quiz.id}
+                  className="h-8 w-8 text-gray-text hover:text-blue-cta text-xs rounded border border-mid-gray flex items-center justify-center transition-colors disabled:opacity-50"
+                  title="Duplicate quiz"
+                >
+                  {duplicating === quiz.id ? '...' : '⧉'}
+                </button>
                 <div className="relative">
                   <button
                     onClick={() => setMoveMenuId(showMoveMenu ? null : quiz.id)}
