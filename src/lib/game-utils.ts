@@ -88,3 +88,63 @@ export function checkAnswer(
       return false
   }
 }
+
+const ADJECTIVES = [
+  'Brave','Swift','Clever','Mighty','Cosmic','Lucky','Bold','Fierce',
+  'Turbo','Mega','Super','Epic','Noble','Rapid','Bright','Jolly',
+  'Witty','Daring','Grand','Hyper','Ultra','Funky','Zippy','Cool',
+  'Nifty','Keen','Wild','Zesty','Vivid','Plucky','Snappy','Nimble',
+  'Blazing','Flying','Roaring','Sparky','Stellar','Atomic','Thunder',
+  'Crystal','Golden','Silver','Iron','Storm','Flash','Rocket','Phantom',
+  'Shadow','Mystic','Polar','Sonic',
+]
+
+const ANIMALS = [
+  'Panda','Eagle','Tiger','Dolphin','Phoenix','Wolf','Falcon','Dragon',
+  'Koala','Fox','Hawk','Lion','Otter','Bear','Shark','Panther',
+  'Cheetah','Owl','Raven','Cobra','Penguin','Jaguar','Lynx','Bison',
+  'Moose','Whale','Gecko','Viper','Crane','Parrot','Toucan','Hippo',
+  'Rhino','Gazelle','Husky','Puma','Badger','Condor','Mantis','Hornet',
+  'Scorpion','Mammoth','Raptor','Stallion','Osprey','Meerkat','Lemur',
+  'Iguana','Coyote','Llama',
+]
+
+export function generateNickname(existingNames: string[]): string {
+  const existing = new Set(existingNames.map(n => n.toLowerCase()))
+  for (let i = 0; i < 50; i++) {
+    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]
+    const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
+    const name = `${adj} ${animal}`
+    if (!existing.has(name.toLowerCase())) return name
+  }
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]
+  const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
+  return `${adj} ${animal} ${Math.floor(Math.random() * 99) + 1}`
+}
+
+const TEAM_COLORS = [
+  { name: 'Red', color: '#E21B3C' },
+  { name: 'Blue', color: '#1368CE' },
+  { name: 'Green', color: '#26890C' },
+  { name: 'Orange', color: '#D89E00' },
+  { name: 'Purple', color: '#46178F' },
+  { name: 'Teal', color: '#0AA3CF' },
+  { name: 'Pink', color: '#B8116E' },
+  { name: 'Gold', color: '#FF6B35' },
+]
+
+export function getTeamConfigs(count: number): { name: string; color: string }[] {
+  return TEAM_COLORS.slice(0, count).map(c => ({
+    name: `${c.name} Team`,
+    color: c.color,
+  }))
+}
+
+export function assignPlayersToTeams<T>(players: T[], teamCount: number): T[][] {
+  const shuffled = [...players].sort(() => Math.random() - 0.5)
+  const teams: T[][] = Array.from({ length: teamCount }, () => [])
+  shuffled.forEach((player, i) => {
+    teams[i % teamCount].push(player)
+  })
+  return teams
+}

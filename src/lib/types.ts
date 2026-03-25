@@ -16,7 +16,7 @@ export type QuestionType =
 
 export type SessionStatus = 'lobby' | 'active' | 'paused' | 'reviewing' | 'completed'
 export type GameMode = 'classic' | 'team'
-export type SessionMode = 'live' | 'self_paced'
+export type SessionMode = 'live' | 'qa'
 
 export interface Profile {
   id: string
@@ -93,7 +93,7 @@ export interface GameSession {
   mode: SessionMode
   game_mode: GameMode
   current_question_index: number
-  settings: Record<string, unknown>
+  settings: SessionSettings
   started_at: string | null
   ended_at: string | null
   created_at: string
@@ -110,6 +110,23 @@ export interface Participant {
   total_streak: number
   rank: number | null
   joined_at: string
+}
+
+export interface Team {
+  id: string
+  session_id: string
+  name: string
+  color: string
+  total_score: number
+  rank: number | null
+  created_at: string
+}
+
+export interface SessionSettings {
+  nicknameGenerator?: boolean
+  playerIdentifier?: boolean
+  teamMode?: boolean
+  teamCount?: number
 }
 
 export interface Answer {
