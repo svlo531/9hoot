@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { BarChart3, Gamepad2, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react'
 import type { ReportEntry } from '@/app/(dashboard)/reports/page'
 
 function formatDate(dateStr: string): string {
@@ -99,7 +100,7 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
   if (reports.length === 0) {
     return (
       <div className="border-2 border-dashed border-mid-gray rounded-lg p-12 text-center">
-        <div className="text-4xl mb-3">📊</div>
+        <div className="text-4xl mb-3"><BarChart3 size={36} className="mx-auto text-gray-text" /></div>
         <h2 className="text-lg font-bold text-dark-text mb-2">View reports here</h2>
         <p className="text-gray-text text-sm">Host a 9Hoot to see session reports</p>
       </div>
@@ -179,7 +180,7 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                     {r.coverImageUrl ? (
                       <img src={r.coverImageUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-2xl">🎮</span>
+                      <Gamepad2 size={24} className="text-white/80" />
                     )}
                   </div>
                   <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col justify-center">
@@ -232,7 +233,7 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                     {coverUrl ? (
                       <img src={coverUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-2xl">🎮</span>
+                      <Gamepad2 size={24} className="text-white/80" />
                     )}
                   </div>
                   <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col justify-center text-left">
@@ -246,7 +247,7 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                         </h3>
                         <p className="text-gray-text text-xs mt-0.5">Latest: {formatShortDate(latestDate)}</p>
                       </div>
-                      <span className="text-gray-text text-lg flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="text-gray-text flex-shrink-0">{isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</span>
                     </div>
                     <div className="flex items-center gap-3 mt-2 text-xs text-gray-text">
                       <span>{totalPlayers} total players</span>
@@ -294,7 +295,7 @@ export function ReportList({ reports }: { reports: ReportEntry[] }) {
                             <span>{r.questionCount} questions</span>
                           </div>
                         </div>
-                        <span className="text-gray-text text-sm">→</span>
+                        <ArrowRight size={16} className="text-gray-text" />
                       </Link>
                     ))}
                   </div>

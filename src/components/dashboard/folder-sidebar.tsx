@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Folder as FolderIcon, LayoutGrid, Star, Pencil, X } from 'lucide-react'
 import type { Folder } from '@/lib/types'
 
 interface Props {
@@ -107,7 +108,7 @@ export function FolderSidebar({ folders, activeFolderId, showFavorites = false }
             </form>
           ) : (
             <>
-              <span className="text-xs">📁</span>
+              <FolderIcon size={14} className="flex-shrink-0" />
               <span
                 className="flex-1 truncate"
                 onClick={() => navigateToFolder(folder.id)}
@@ -137,7 +138,7 @@ export function FolderSidebar({ folders, activeFolderId, showFavorites = false }
                   className="w-5 h-5 text-[10px] text-gray-text hover:text-blue-cta rounded hover:bg-light-gray flex items-center justify-center"
                   title="Rename"
                 >
-                  ✎
+                  <Pencil size={10} />
                 </button>
                 {isConfirmingDelete ? (
                   <button
@@ -159,7 +160,7 @@ export function FolderSidebar({ folders, activeFolderId, showFavorites = false }
                     className="w-5 h-5 text-[10px] text-gray-text hover:text-red-600 rounded hover:bg-light-gray flex items-center justify-center"
                     title="Delete"
                   >
-                    ✕
+                    <X size={10} />
                   </button>
                 )}
               </div>
@@ -189,7 +190,7 @@ export function FolderSidebar({ folders, activeFolderId, showFavorites = false }
               : 'text-dark-text hover:bg-light-gray'
           }`}
         >
-          <span className="text-xs">📋</span>
+          <LayoutGrid size={14} className="flex-shrink-0" />
           <span>All 9Hoots</span>
         </div>
 
@@ -202,7 +203,7 @@ export function FolderSidebar({ folders, activeFolderId, showFavorites = false }
               : 'text-dark-text hover:bg-light-gray'
           }`}
         >
-          <span className="text-xs">⭐</span>
+          <Star size={14} className="flex-shrink-0" />
           <span>Favorites</span>
         </div>
 

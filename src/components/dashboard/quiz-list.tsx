@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Gamepad2, Folder as FolderIcon, Star, Copy, X, Target } from 'lucide-react'
 import type { Quiz, Folder } from '@/lib/types'
 
 interface QuizListProps {
@@ -78,7 +79,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
       <>
         {searchBar}
         <div className="border-2 border-dashed border-mid-gray rounded-lg p-12 text-center">
-          <div className="text-4xl mb-3">🎯</div>
+          <div className="text-4xl mb-3"><Target size={36} className="mx-auto text-gray-text" /></div>
           <h2 className="text-lg font-bold text-dark-text mb-2">
             {search ? 'No matches' : 'No 9Hoots yet'}
           </h2>
@@ -116,11 +117,11 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
               {quiz.cover_image_url ? (
                 <img src={quiz.cover_image_url} alt="" className="w-full h-full object-cover" />
               ) : (
-                <span className="text-3xl">🎮</span>
+                <Gamepad2 size={32} className="text-white/80" />
               )}
               {currentFolder && (
-                <span className="absolute top-2 left-2 text-[10px] font-bold bg-black/50 text-white px-1.5 py-0.5 rounded">
-                  📁 {currentFolder.name}
+                <span className="absolute top-2 left-2 text-[10px] font-bold bg-black/50 text-white px-1.5 py-0.5 rounded inline-flex items-center gap-0.5">
+                  <FolderIcon size={10} /> {currentFolder.name}
                 </span>
               )}
               <button
@@ -132,7 +133,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                 }`}
                 title={quiz.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
-                <span className="text-sm">{quiz.is_favorite ? '★' : '☆'}</span>
+                {quiz.is_favorite ? <Star size={14} fill="currentColor" /> : <Star size={14} />}
               </button>
             </div>
 
@@ -161,7 +162,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                   className="h-8 w-8 text-gray-text hover:text-blue-cta text-xs rounded border border-mid-gray flex items-center justify-center transition-colors disabled:opacity-50"
                   title="Duplicate quiz"
                 >
-                  {duplicating === quiz.id ? '...' : '⧉'}
+                  {duplicating === quiz.id ? '...' : <Copy size={14} />}
                 </button>
                 <div className="relative">
                   <button
@@ -169,7 +170,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                     className="h-8 w-8 text-gray-text hover:text-blue-cta text-xs rounded border border-mid-gray flex items-center justify-center transition-colors"
                     title="Move to folder"
                   >
-                    📁
+                    <FolderIcon size={14} />
                   </button>
                   {showMoveMenu && (
                     <div
@@ -197,7 +198,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                                 quiz.folder_id === folder.id ? 'text-blue-cta font-bold' : 'text-dark-text'
                               }`}
                             >
-                              📁 {folder.name}
+                              <span className="inline-flex items-center gap-1"><FolderIcon size={12} /> {folder.name}</span>
                             </button>
                             {folders
                               .filter((c) => c.parent_folder_id === folder.id)
@@ -209,7 +210,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                                     quiz.folder_id === child.id ? 'text-blue-cta font-bold' : 'text-dark-text'
                                   }`}
                                 >
-                                  📁 {child.name}
+                                  <span className="inline-flex items-center gap-1"><FolderIcon size={12} /> {child.name}</span>
                                 </button>
                               ))}
                           </div>
@@ -221,7 +222,7 @@ export function QuizList({ quizzes, folders = [], initialSearch = '' }: QuizList
                   onClick={() => handleDelete(quiz.id)}
                   className="h-8 w-8 text-gray-text hover:text-answer-red text-xs rounded border border-mid-gray flex items-center justify-center transition-colors"
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               </div>
             </div>
