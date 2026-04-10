@@ -1594,7 +1594,7 @@ function ResultsScreen({
     )
   }
 
-  // Word Cloud results — animated cloud
+  // Word Cloud results — scattered tag cloud (Kahoot-style)
   if (question.type === 'word_cloud') {
     const wordMap = new Map<string, number>()
     for (const a of answers) {
@@ -1605,7 +1605,32 @@ function ResultsScreen({
       .sort((a, b) => b[1] - a[1])
       .slice(0, 30)
     const maxFreq = Math.max(...words.map(([, c]) => c), 1)
-    const cloudColors = ['#E21B3C', '#1368CE', '#D89E00', '#26890C', '#0AA3CF', '#B8116E', '#FFD700', '#FF69B4']
+    // Vibrant background colors for word tags
+    const tagColors = ['#E21B3C', '#1368CE', '#D89E00', '#26890C', '#0AA3CF', '#B8116E', '#E8590C', '#7C3AED']
+
+    // Deterministic pseudo-random from word string — stable across re-renders
+    const seedRand = (s: string, salt: number) => {
+      let h = salt
+      for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+      return ((h & 0x7fffffff) % 1000) / 1000
+    }
+
+    // Pre-compute tag layout: scattered rows with varied vertical offsets
+    const rows: { word: string; count: number; idx: number }[][] = []
+    let currentRow: typeof rows[0] = []
+    let rowWidth = 0
+    const MAX_ROW_W = 5 // approximate "weight" units per row
+    words.forEach(([word, count], idx) => {
+      const weight = 0.8 + (count / maxFreq) * 1.2
+      if (rowWidth + weight > MAX_ROW_W && currentRow.length > 0) {
+        rows.push(currentRow)
+        currentRow = []
+        rowWidth = 0
+      }
+      currentRow.push({ word, count, idx })
+      rowWidth += weight
+    })
+    if (currentRow.length > 0) rows.push(currentRow)
 
     return (
       <div className="min-h-screen flex flex-col" style={{ background: gameGradient(theme) }}>
@@ -1615,28 +1640,53 @@ function ResultsScreen({
           </div>
         </div>
 
-        <div className="flex-1 flex items-center justify-center px-8 pb-4">
+        <div className="flex-1 flex items-center justify-center px-8 pb-4 overflow-hidden">
           {words.length === 0 ? (
             <p className="text-white/40 text-sm">No responses yet</p>
           ) : (
-            <div className="flex flex-wrap items-center justify-center gap-3 max-w-3xl">
-              {words.map(([word, count], i) => {
-                const scale = 0.7 + (count / maxFreq) * 1.8
-                // Hash-based color so each word gets a distinct, stable color
-                const hash = word.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
+            <div className="flex flex-col items-center gap-2 max-w-4xl w-full">
+              {rows.map((row, ri) => {
+                // Alternate row alignment for organic feel
+                const justify = ri % 3 === 0 ? 'center' : ri % 3 === 1 ? 'flex-start' : 'flex-end'
                 return (
-                  <span
-                    key={word}
-                    className="font-bold transition-all animate-cloud-word"
+                  <div
+                    key={ri}
+                    className="flex flex-wrap gap-2 w-full"
                     style={{
-                      fontSize: `${scale}rem`,
-                      color: cloudColors[(hash + i) % cloudColors.length],
-                      animationDelay: `${i * 60}ms`,
+                      justifyContent: justify,
+                      paddingLeft: `${seedRand(`row${ri}`, 7) * 40}px`,
+                      paddingRight: `${seedRand(`row${ri}`, 13) * 40}px`,
+                      transform: `translateY(${(seedRand(`rowY${ri}`, 3) - 0.5) * 12}px)`,
                     }}
                   >
-                    {word}
-                    {count > 1 && <sup className="text-white/40 text-xs ml-0.5">{count}</sup>}
-                  </span>
+                    {row.map(({ word, count, idx }) => {
+                      // Font size scales with frequency: 0.85rem to 2.4rem
+                      const fontSize = 0.85 + (count / maxFreq) * 1.55
+                      // Stable color per word
+                      const colorIdx = Math.floor(seedRand(word, 42) * tagColors.length)
+                      const bg = tagColors[colorIdx]
+                      // Slight random rotation for organic scatter (-3deg to +3deg)
+                      const rotate = (seedRand(word, 99) - 0.5) * 6
+
+                      return (
+                        <span
+                          key={word}
+                          className="inline-block font-bold text-white rounded-md shadow-lg animate-cloud-tag"
+                          style={{
+                            fontSize: `${fontSize}rem`,
+                            lineHeight: 1.1,
+                            backgroundColor: bg,
+                            padding: `${fontSize * 0.25}rem ${fontSize * 0.5}rem`,
+                            transform: `rotate(${rotate}deg)`,
+                            animationDelay: `${idx * 70}ms`,
+                          }}
+                        >
+                          {word}
+                          {count > 1 && <sup className="opacity-60 text-[0.55em] ml-0.5">x{count}</sup>}
+                        </span>
+                      )
+                    })}
+                  </div>
                 )
               })}
             </div>
@@ -1648,7 +1698,7 @@ function ResultsScreen({
           <div className="flex flex-col items-center gap-1"><button onClick={onNext} className="h-12 px-8 bg-white text-purple-primary font-bold text-sm rounded-lg hover:bg-gray-100 transition-all hover:scale-105 active:scale-95 shadow-lg">Next →</button><span className="text-white/40 text-[10px]">Press Enter or Space</span></div>
         </div>
 
-        <style jsx>{`@keyframes cloud-word { 0% { transform: scale(0); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } } .animate-cloud-word { animation: cloud-word 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
+        <style jsx>{`@keyframes cloud-tag { 0% { transform: scale(0) rotate(0deg); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } } .animate-cloud-tag { animation: cloud-tag 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }`}</style>
       </div>
     )
   }
