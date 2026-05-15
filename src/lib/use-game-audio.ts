@@ -194,11 +194,23 @@ export function useGameAudio() {
       }
 
       case 'leaderboardReveal': {
+        const bgm = bgmRef.current
+        const wasPlayingBgm = !!bgm && !bgm.paused
+        if (wasPlayingBgm) bgm!.pause()
+
         const audio = new Audio('/audio/Gong-effect.mp3')
         audio.volume = 0.7
-        audio.play().catch(() => {
-          // Browser may block playback if no user interaction yet
-        })
+        audio.muted = mutedRef.current
+
+        const resumeBgm = () => {
+          if (wasPlayingBgm && bgmRef.current) {
+            bgmRef.current.play().catch(() => {})
+          }
+        }
+        audio.onended = resumeBgm
+        audio.onerror = resumeBgm
+
+        audio.play().catch(resumeBgm)
         break
       }
 
