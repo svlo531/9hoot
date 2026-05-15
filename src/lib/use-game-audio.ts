@@ -194,19 +194,11 @@ export function useGameAudio() {
       }
 
       case 'leaderboardReveal': {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.type = 'triangle'
-        osc.frequency.setValueAtTime(200, now)
-        osc.frequency.exponentialRampToValueAtTime(800, now + 0.6)
-        gain.gain.setValueAtTime(0.1, now)
-        gain.gain.linearRampToValueAtTime(0.15, now + 0.3)
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8)
-        osc.connect(gain).connect(ctx.destination)
-        osc.start(now)
-        osc.stop(now + 0.9)
-        activeNodesRef.current.add(gain)
-        osc.onended = () => { gain.disconnect(); activeNodesRef.current.delete(gain) }
+        const audio = new Audio('/audio/Gong-effect.mp3')
+        audio.volume = 0.7
+        audio.play().catch(() => {
+          // Browser may block playback if no user interaction yet
+        })
         break
       }
 
