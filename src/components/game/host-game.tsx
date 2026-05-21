@@ -208,7 +208,7 @@ export function HostGame({
 
   function handleSettingsReady(settings: SessionSettings) {
     setSessionSettings(settings)
-    setDisplayQuestions(prepareGameQuestions(questions))
+    setDisplayQuestions(prepareGameQuestions(questions, session.id))
     setPhase('lobby')
   }
 

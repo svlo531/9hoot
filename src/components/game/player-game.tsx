@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ANSWER_SHAPES } from '@/lib/types'
-import { checkAnswer, calculateScore, getStreakMultiplier, generateNickname } from '@/lib/game-utils'
+import { checkAnswer, calculateScore, getStreakMultiplier, generateNickname, prepareGameQuestions } from '@/lib/game-utils'
 import type { SessionSettings } from '@/lib/types'
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { ThemeConfig } from '@/lib/theme-utils'
@@ -406,13 +406,16 @@ export function PlayerGame({ pin }: { pin: string }) {
         .order('sort_order', { ascending: true })
 
       if (questions) {
-        questionsRef.current = questions.map((q: Record<string, unknown>, i: number) => ({
+        // Use the same deterministic shuffle the host runs so both sides agree
+        // on option order and (for quiz) the remapped correct_answers indices.
+        const prepared = prepareGameQuestions(questions as unknown as import('@/lib/types').Question[], sessionId!)
+        questionsRef.current = prepared.map((q, i) => ({
           id: q.id, index: i, type: q.type,
           questionText: q.question_text || '',
           options: q.options as { text: string }[] | null,
           correctAnswers: q.correct_answers,
           timeLimit: q.time_limit, points: q.points,
-          totalQuestions: questions.length,
+          totalQuestions: prepared.length,
         }))
       }
     }

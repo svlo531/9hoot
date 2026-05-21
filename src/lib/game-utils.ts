@@ -160,17 +160,46 @@ export function shuffleArray<T>(arr: T[]): T[] {
   return out
 }
 
-// For each question with randomize_answers=true, shuffle its options.
+// Deterministic PRNG (mulberry32) so host and player produce the same order
+// from the same seed string — critical for keeping correctness checks aligned.
+function hashSeed(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i)
+    h |= 0
+  }
+  return h
+}
+
+function seededShuffle<T>(arr: T[], seed: string): T[] {
+  let state = hashSeed(seed) >>> 0
+  const rand = () => {
+    state = (state + 0x6D2B79F5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const out = [...arr]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
+// For each question with randomize_answers=true, shuffle its options using a
+// session+question seed so host and player produce identical orderings.
 // For 'quiz' type the correct_answers are option indices, so they're remapped to track the new positions.
-// Runs once per session so the shuffled order stays stable across replays and reconciliation.
-export function prepareGameQuestions(questions: Question[]): Question[] {
+export function prepareGameQuestions(questions: Question[], sessionId: string): Question[] {
   return questions.map((q) => {
     if (!q.randomize_answers) return q
+    const seed = `${sessionId}:${q.id}`
     if (q.type === 'quiz') {
       const opts = (q.options as QuizOption[]) || []
       if (opts.length < 2) return q
       const correctIdx = (q.correct_answers as number[]) || []
-      const perm = shuffleArray(opts.map((_, i) => i))
+      const perm = seededShuffle(opts.map((_, i) => i), seed)
       const newOpts = perm.map((i) => opts[i])
       const newCorrect = correctIdx.map((c) => perm.indexOf(c))
       return { ...q, options: newOpts, correct_answers: newCorrect }
@@ -178,7 +207,7 @@ export function prepareGameQuestions(questions: Question[]): Question[] {
     if (q.type === 'poll') {
       const opts = (q.options as QuizOption[]) || []
       if (opts.length < 2) return q
-      return { ...q, options: shuffleArray(opts) }
+      return { ...q, options: seededShuffle(opts, seed) }
     }
     return q
   })
