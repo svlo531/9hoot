@@ -127,6 +127,7 @@ export interface SessionSettings {
   playerIdentifier?: boolean
   teamMode?: boolean
   teamCount?: number
+  randomizeQuestions?: boolean
 }
 
 export interface Answer {

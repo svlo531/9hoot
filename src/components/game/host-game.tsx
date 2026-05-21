@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { GameSession, Question, ContentSlideOptions, SessionSettings } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
-import { calculateScore, getStreakMultiplier, checkAnswer, getTeamConfigs, assignPlayersToTeams } from '@/lib/game-utils'
+import { calculateScore, getStreakMultiplier, checkAnswer, getTeamConfigs, assignPlayersToTeams, shuffleArray } from '@/lib/game-utils'
 import { GameSettings } from './game-settings'
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { ThemeConfig } from '@/lib/theme-utils'
@@ -43,6 +43,7 @@ export function HostGame({
   const [getReadyCount, setGetReadyCount] = useState(3)
   const [brainstormVoteQueue, setBrainstormVoteQueue] = useState<{ idea: string; participantId: string }[]>([])
   const [sessionSettings, setSessionSettings] = useState<SessionSettings>(session.settings || {})
+  const [displayQuestions, setDisplayQuestions] = useState<Question[]>(questions)
   const [teams, setTeams] = useState<{ id: string; name: string; color: string; playerIds: string[] }[]>([])
   const [teamLeaderboard, setTeamLeaderboard] = useState<{ id: string; name: string; color: string; score: number }[]>([])
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -52,7 +53,7 @@ export function HostGame({
   const supabase = createClient()
   const audio = useGameAudio()
 
-  const currentQuestion = currentIndex >= 0 ? questions[currentIndex] : null
+  const currentQuestion = currentIndex >= 0 ? displayQuestions[currentIndex] : null
 
   // Sync mute state with audio engine
   useEffect(() => {
@@ -207,6 +208,7 @@ export function HostGame({
 
   function handleSettingsReady(settings: SessionSettings) {
     setSessionSettings(settings)
+    setDisplayQuestions(settings.randomizeQuestions ? shuffleArray(questions) : questions)
     setPhase('lobby')
   }
 
@@ -289,7 +291,7 @@ export function HostGame({
   }
 
   function startQuestion(index: number) {
-    const q = questions[index]
+    const q = displayQuestions[index]
     if (!q) return
 
     setCurrentIndex(index)
@@ -309,7 +311,7 @@ export function HostGame({
         timeLimit: q.time_limit,
         points: q.points,
         mediaUrl: q.media_url,
-        totalQuestions: questions.length,
+        totalQuestions: displayQuestions.length,
       },
     })
 
@@ -431,7 +433,7 @@ export function HostGame({
       const reconciledScores = new Map<string, { score: number; streak: number }>()
 
       for (let qi = 0; qi <= currentIndex; qi++) {
-        const q = questions[qi]
+        const q = displayQuestions[qi]
         const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
         if (isNonScored) continue
 
@@ -494,7 +496,7 @@ export function HostGame({
 
   function nextQuestion() {
     const nextIndex = currentIndex + 1
-    if (nextIndex >= questions.length) {
+    if (nextIndex >= displayQuestions.length) {
       showPodium()
     } else {
       showGetReady(nextIndex)
@@ -521,7 +523,7 @@ export function HostGame({
       const reconciledScores = new Map<string, { score: number; streak: number; correct: number }>()
 
       // Re-score all questions in order from DB answers
-      for (const q of questions) {
+      for (const q of displayQuestions) {
         const isNonScored = ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
         if (isNonScored) continue
 
@@ -628,7 +630,7 @@ export function HostGame({
       if (p === 'lobby') startGameRef.current()
       else if (p === 'question') nextQuestionRef.current()
       else if (p === 'results') {
-        const q = questions[currentIndexRef.current]
+        const q = displayQuestions[currentIndexRef.current]
         const isNonScored = q && ['open_ended', 'nps_survey', 'poll', 'word_cloud', 'brainstorm', 'content_slide'].includes(q.type)
         if (isNonScored) nextQuestionRef.current()
         else showLeaderboardRef.current()
@@ -667,7 +669,7 @@ export function HostGame({
   if (phase === 'getReady') return (
     <GetReadyScreen
       questionIndex={currentIndex}
-      totalQuestions={questions.length}
+      totalQuestions={displayQuestions.length}
       count={getReadyCount}
       theme={theme}
     />
@@ -677,7 +679,7 @@ export function HostGame({
     <QuestionScreen
       question={currentQuestion}
       index={currentIndex}
-      total={questions.length}
+      total={displayQuestions.length}
       timeLeft={timeLeft}
       answerCount={answers.length}
       playerCount={players.size}
@@ -708,7 +710,7 @@ export function HostGame({
           teamLeaderboard={teamLeaderboard}
           individualLeaderboard={leaderboard.slice(0, 10)}
           onNext={nextQuestion}
-          isLast={currentIndex >= questions.length - 1}
+          isLast={currentIndex >= displayQuestions.length - 1}
           theme={theme}
         />
       )
@@ -717,7 +719,7 @@ export function HostGame({
       <LeaderboardScreen
         leaderboard={leaderboard.slice(0, 10)}
         onNext={nextQuestion}
-        isLast={currentIndex >= questions.length - 1}
+        isLast={currentIndex >= displayQuestions.length - 1}
         theme={theme}
       />
     )
@@ -1023,7 +1025,7 @@ function QuestionScreen({
       {/* Media (hidden for image_reveal — it renders its own tiled image) */}
       {question.media_url && question.type !== 'image_reveal' && (
         <div className="flex justify-center px-8 mb-4">
-          <img src={question.media_url} alt="" className="max-h-48 rounded-lg shadow-lg" />
+          <img src={question.media_url} alt="" className="max-h-[45vh] max-w-3xl object-contain rounded-lg shadow-lg" />
         </div>
       )}
 

@@ -17,6 +17,7 @@ export function GameSettings({ sessionId, quizTitle, theme, onReady }: Props) {
   const [playerIdentifier, setPlayerIdentifier] = useState(false)
   const [teamMode, setTeamMode] = useState(false)
   const [teamCount, setTeamCount] = useState(4)
+  const [randomizeQuestions, setRandomizeQuestions] = useState(false)
   const [saving, setSaving] = useState(false)
 
   async function handleOpenLobby() {
@@ -26,6 +27,7 @@ export function GameSettings({ sessionId, quizTitle, theme, onReady }: Props) {
       playerIdentifier,
       teamMode,
       teamCount: teamMode ? teamCount : undefined,
+      randomizeQuestions,
     }
 
     await fetch(`/api/sessions/${sessionId}`, {
@@ -70,6 +72,14 @@ export function GameSettings({ sessionId, quizTitle, theme, onReady }: Props) {
             description="Split players into random teams"
             enabled={teamMode}
             onToggle={() => setTeamMode(!teamMode)}
+          />
+
+          {/* Randomize Questions */}
+          <SettingToggle
+            label="Randomize Questions"
+            description="Shuffle question order each session"
+            enabled={randomizeQuestions}
+            onToggle={() => setRandomizeQuestions(!randomizeQuestions)}
           />
 
           {/* Team count slider - only when team mode is on */}
