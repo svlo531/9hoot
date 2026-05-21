@@ -57,7 +57,7 @@ function QuestionImageUpload({
 
       {question.media_url ? (
         <div className="relative group">
-          <div className="w-full rounded-lg overflow-hidden border border-border-gray bg-light-gray flex items-center justify-center" style={{ height: '120px' }}>
+          <div className="w-full rounded-lg overflow-hidden border border-border-gray bg-light-gray flex items-center justify-center" style={{ height: '280px' }}>
             <img src={question.media_url} alt="Question media" className="max-w-full max-h-full object-contain" />
           </div>
           <button
@@ -73,7 +73,7 @@ function QuestionImageUpload({
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           className="w-full border-2 border-dashed border-mid-gray rounded-lg flex flex-col items-center justify-center text-gray-text hover:border-blue-cta hover:text-blue-cta transition-colors disabled:opacity-60"
-          style={{ height: '120px' }}
+          style={{ height: '280px' }}
         >
           {uploading ? (
             <span className="text-xs font-bold">Uploading...</span>
