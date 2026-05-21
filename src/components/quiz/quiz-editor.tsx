@@ -265,6 +265,7 @@ export function QuizEditor({
             time_limit: q.time_limit,
             points: q.points,
             media_url: q.media_url,
+            randomize_answers: q.randomize_answers ?? false,
             sort_order: i,
           }).eq('id', q.id)
         )

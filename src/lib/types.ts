@@ -63,6 +63,7 @@ export interface Question {
   points: 0 | 1000 | 2000
   options: QuizOption[] | SliderOptions | ContentSlideOptions | null
   correct_answers: unknown
+  randomize_answers: boolean
   created_at: string
 }
 
@@ -127,7 +128,6 @@ export interface SessionSettings {
   playerIdentifier?: boolean
   teamMode?: boolean
   teamCount?: number
-  randomizeQuestions?: boolean
 }
 
 export interface Answer {

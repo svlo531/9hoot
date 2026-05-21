@@ -1,3 +1,5 @@
+import type { Question, QuizOption } from './types'
+
 // Generate a unique 6-digit PIN
 export function generatePin(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
@@ -156,4 +158,28 @@ export function shuffleArray<T>(arr: T[]): T[] {
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   return out
+}
+
+// For each question with randomize_answers=true, shuffle its options.
+// For 'quiz' type the correct_answers are option indices, so they're remapped to track the new positions.
+// Runs once per session so the shuffled order stays stable across replays and reconciliation.
+export function prepareGameQuestions(questions: Question[]): Question[] {
+  return questions.map((q) => {
+    if (!q.randomize_answers) return q
+    if (q.type === 'quiz') {
+      const opts = (q.options as QuizOption[]) || []
+      if (opts.length < 2) return q
+      const correctIdx = (q.correct_answers as number[]) || []
+      const perm = shuffleArray(opts.map((_, i) => i))
+      const newOpts = perm.map((i) => opts[i])
+      const newCorrect = correctIdx.map((c) => perm.indexOf(c))
+      return { ...q, options: newOpts, correct_answers: newCorrect }
+    }
+    if (q.type === 'poll') {
+      const opts = (q.options as QuizOption[]) || []
+      if (opts.length < 2) return q
+      return { ...q, options: shuffleArray(opts) }
+    }
+    return q
+  })
 }

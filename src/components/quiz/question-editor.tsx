@@ -118,13 +118,17 @@ export function QuestionEditor({
         <>
           <QuestionImageUpload question={question} onUpdate={onUpdate} label="Question image (optional)" />
           <MCQEditor question={question} onUpdate={onUpdate} />
+          <RandomizeAnswersToggle question={question} onUpdate={onUpdate} />
         </>
       )}
       {question.type === 'true_false' && (
         <TrueFalseEditor question={question} onUpdate={onUpdate} />
       )}
       {question.type === 'poll' && (
-        <PollEditor question={question} onUpdate={onUpdate} />
+        <>
+          <PollEditor question={question} onUpdate={onUpdate} />
+          <RandomizeAnswersToggle question={question} onUpdate={onUpdate} />
+        </>
       )}
       {question.type === 'type_answer' && (
         <TypeAnswerEditor question={question} onUpdate={onUpdate} />
@@ -253,6 +257,25 @@ function MCQEditor({ question, onUpdate }: { question: Question; onUpdate: (q: Q
         </button>
       )}
     </div>
+  )
+}
+
+function RandomizeAnswersToggle({ question, onUpdate }: { question: Question; onUpdate: (q: Question) => void }) {
+  const enabled = !!question.randomize_answers
+  return (
+    <button
+      type="button"
+      onClick={() => onUpdate({ ...question, randomize_answers: !enabled })}
+      className="mt-4 w-full flex items-center justify-between bg-white rounded-lg border border-mid-gray px-4 py-3 hover:border-blue-cta transition-colors text-left"
+    >
+      <div>
+        <p className="text-sm font-bold text-dark-text">Shuffle answer order</p>
+        <p className="text-xs text-gray-text mt-0.5">Players see the options in a random order each session</p>
+      </div>
+      <div className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${enabled ? 'bg-correct-green' : 'bg-mid-gray'}`}>
+        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-[22px]' : 'translate-x-1'}`} />
+      </div>
+    </button>
   )
 }
 

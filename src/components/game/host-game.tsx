@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { GameSession, Question, ContentSlideOptions, SessionSettings } from '@/lib/types'
 import { ANSWER_SHAPES } from '@/lib/types'
-import { calculateScore, getStreakMultiplier, checkAnswer, getTeamConfigs, assignPlayersToTeams, shuffleArray } from '@/lib/game-utils'
+import { calculateScore, getStreakMultiplier, checkAnswer, getTeamConfigs, assignPlayersToTeams, prepareGameQuestions } from '@/lib/game-utils'
 import { GameSettings } from './game-settings'
 import { useGameAudio } from '@/lib/use-game-audio'
 import type { ThemeConfig } from '@/lib/theme-utils'
@@ -208,7 +208,7 @@ export function HostGame({
 
   function handleSettingsReady(settings: SessionSettings) {
     setSessionSettings(settings)
-    setDisplayQuestions(settings.randomizeQuestions ? shuffleArray(questions) : questions)
+    setDisplayQuestions(prepareGameQuestions(questions))
     setPhase('lobby')
   }
 

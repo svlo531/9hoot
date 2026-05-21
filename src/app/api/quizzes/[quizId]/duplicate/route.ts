@@ -67,6 +67,7 @@ export async function POST(
       points: q.points,
       options: q.options,
       correct_answers: q.correct_answers,
+      randomize_answers: q.randomize_answers ?? false,
     }))
 
     await supabase.from('questions').insert(newQuestions)
